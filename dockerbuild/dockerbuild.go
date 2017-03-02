@@ -3,20 +3,19 @@ package dockerbuild
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io/ioutil"
-	"regexp"
-
-	"gitlab.home.mikenewswanger.com/golang/executil"
-	"gitlab.home.mikenewswanger.com/golang/filesystem"
-
-	"sync"
-
-	"os/user"
-
 	"os"
+	"os/user"
+	"regexp"
+	"sync"
 
 	"github.com/fatih/color"
 	"github.com/mitchellh/go-homedir"
+
+	"gitlab.home.mikenewswanger.com/golang/executil"
+	"gitlab.home.mikenewswanger.com/golang/filesystem"
 )
 
 // DockerBuild provides build services for docker images
@@ -27,10 +26,10 @@ type DockerBuild struct {
 	InternalImagePrefix string
 	Tag                 string
 
-	dockerfiles         []dockerfile
-	dockerfileHeirarchy map[string][]dockerfile
-
-	imageBoolMap map[string]bool
+	dockerfiles         []*dockerfile
+	dockerfileHeirarchy map[string][]*dockerfile
+	imageBoolMap        map[string]bool
+	tempDir             string
 }
 
 type dockerfile struct {
@@ -47,8 +46,9 @@ func (db *DockerBuild) initialize() {
 	}
 	db.DockerfileDirectory, _ = homedir.Expand(db.DockerfileDirectory)
 	db.DockerfileDirectory = filesystem.ForceTrailingSlash(db.DockerfileDirectory)
+	db.tempDir = filesystem.ForceTrailingSlash(db.DockerfileDirectory + ".tmp")
 
-	db.dockerfileHeirarchy = make(map[string][]dockerfile)
+	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
 
 	if db.Tag == "" {
 		currentUser, err := user.Current()
@@ -64,6 +64,7 @@ func (db *DockerBuild) BuildImages(forceRebuild bool) {
 	db.initialize()
 
 	db.loadDockerImageHeirarchy()
+	db.createDynamicBuildFiles()
 
 	var waitGroup = sync.WaitGroup{}
 	waitGroup.Add(1)
@@ -79,6 +80,10 @@ func (db *DockerBuild) PrintImageHeirarchy() {
 	db.initialize()
 	db.loadDockerImageHeirarchy()
 	db.imageBoolMap = make(map[string]bool)
+
+	for _, df := range db.dockerfiles {
+		db.imageBoolMap[df.name] = false
+	}
 
 	println("Buildable Images:")
 	db.printChildImages("", 0)
@@ -97,7 +102,7 @@ func (db *DockerBuild) buildDockerImageHeirarchy() {
 		if df.hasInternalDependencies {
 			db.dockerfileHeirarchy[df.parentName] = append(db.dockerfileHeirarchy[df.parentName], df)
 		} else {
-			db.dockerfileHeirarchy[""] = append(db.dockerfileHeirarchy[df.parentName], df)
+			db.dockerfileHeirarchy[""] = append(db.dockerfileHeirarchy[""], df)
 		}
 	}
 }
@@ -139,6 +144,33 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool)
 	waitGroup.Wait()
 }
 
+func (db *DockerBuild) createDynamicBuildFiles() {
+	filesystem.CreateDirectory(db.tempDir)
+	var regex, _ = regexp.Compile("^FROM.*")
+	for i := range db.dockerfiles {
+		// Skip if based on an external image
+		if !db.dockerfiles[i].hasInternalDependencies {
+			continue
+		}
+		// Determine the new filename
+		var h = sha256.New()
+		h.Write([]byte(db.dockerfiles[i].fileName))
+		var newFilename = db.tempDir + hex.EncodeToString(h.Sum(nil))
+
+		// Write out the new file with the tagged base image
+		filesystem.WriteFile(
+			newFilename,
+			[]byte(
+				regex.ReplaceAllString(
+					filesystem.LoadFileIfExists(db.dockerfiles[i].fileName),
+					"FROM "+db.dockerfiles[i].parentName+"_"+db.Tag,
+				),
+			),
+			0644)
+		db.dockerfiles[i].fileName = newFilename
+	}
+}
+
 func (db *DockerBuild) loadDockerImageHeirarchy() {
 	db.loadDockerfiles("")
 	db.buildDockerImageHeirarchy()
@@ -159,16 +191,17 @@ func (db *DockerBuild) loadDockerfiles(subpath string) {
 			reader := bufio.NewReader(readbuffer)
 			line, _, err := reader.ReadLine()
 			if err == nil {
-				fromRegex, _ := regexp.Compile("^FROM\\s+((" + db.InternalImagePrefix + ")?(.+))$")
+				fromRegex, _ := regexp.Compile("^FROM\\s+((" + db.InternalImagePrefix + ")?(.+))\\s*$")
 				// matches[1] == image; matches[2] w/ length > 0 == internal; matches[3] == role
 				matches := fromRegex.FindStringSubmatch(string(line))
 
-				db.dockerfiles = append(db.dockerfiles, dockerfile{
+				var df = dockerfile{
 					name:                    db.InternalImagePrefix + role,
 					fileName:                fileName,
 					parentName:              matches[1],
 					hasInternalDependencies: len(matches[2]) > 0,
-				})
+				}
+				db.dockerfiles = append(db.dockerfiles, &df)
 			}
 		}
 	}
