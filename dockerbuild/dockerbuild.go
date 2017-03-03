@@ -179,6 +179,9 @@ func (db *DockerBuild) loadDockerImageHeirarchy() {
 func (db *DockerBuild) loadDockerfiles(subpath string) {
 	for _, f := range filesystem.GetDirectoryContents(db.DockerfileDirectory + subpath) {
 		if filesystem.IsDirectory(db.DockerfileDirectory + f) {
+			if f == ".tmp" {
+				continue
+			}
 			db.loadDockerfiles(f + "/")
 		} else {
 			var role = subpath + f
