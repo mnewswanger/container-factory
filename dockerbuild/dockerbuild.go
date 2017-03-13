@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/fatih/color"
@@ -20,15 +21,16 @@ import (
 
 // DockerBuild provides build services for docker images
 type DockerBuild struct {
-	Verbosity           uint8
-	Debug               bool
-	DockerfileDirectory string
-	InternalImagePrefix string
-	Tag                 string
+	Verbosity              uint8
+	Debug                  bool
+	DockerfileDirectory    string
+	DockerRegistryBasePath string
+	Tag                    string
 
 	dockerfiles         []*dockerfile
 	dockerfileHeirarchy map[string][]*dockerfile
 	imageBoolMap        map[string]bool
+	internalImagePrefix string
 	tempDir             string
 }
 
@@ -40,10 +42,14 @@ type dockerfile struct {
 }
 
 func (db *DockerBuild) initialize() {
-	if db.InternalImagePrefix == "" {
+	if db.DockerRegistryBasePath == "" {
 		color.Red("Registry Base Path must be specified")
 		os.Exit(100)
 	}
+	var imageBaseRegex, _ = regexp.Compile("^([\\w\\.\\-\\_]+)(:\\d+)?(/.*)")
+	// matches[1] == host; matches[2] == port; matches[3] == image
+	var matches = imageBaseRegex.FindStringSubmatch(db.DockerRegistryBasePath)
+	db.internalImagePrefix = matches[1] + matches[3]
 	db.DockerfileDirectory, _ = homedir.Expand(db.DockerfileDirectory)
 	db.DockerfileDirectory = filesystem.ForceTrailingSlash(db.DockerfileDirectory)
 	db.tempDir = filesystem.ForceTrailingSlash(db.DockerfileDirectory + ".tmp")
@@ -163,7 +169,7 @@ func (db *DockerBuild) createDynamicBuildFiles() {
 			[]byte(
 				regex.ReplaceAllString(
 					filesystem.LoadFileIfExists(db.dockerfiles[i].fileName),
-					"FROM "+db.dockerfiles[i].parentName+"_"+db.Tag,
+					"FROM "+db.dockerfiles[i].parentName+":"+db.Tag,
 				),
 			),
 			0644)
@@ -194,14 +200,14 @@ func (db *DockerBuild) loadDockerfiles(subpath string) {
 			reader := bufio.NewReader(readbuffer)
 			line, _, err := reader.ReadLine()
 			if err == nil {
-				fromRegex, _ := regexp.Compile("^FROM\\s+((" + db.InternalImagePrefix + ")?(.+))\\s*$")
+				fromRegex, _ := regexp.Compile("^FROM\\s+((" + db.internalImagePrefix + ")?(.+))\\s*$")
 				// matches[1] == image; matches[2] w/ length > 0 == internal; matches[3] == role
 				matches := fromRegex.FindStringSubmatch(string(line))
 
 				var df = dockerfile{
-					name:                    db.InternalImagePrefix + role,
+					name:                    db.DockerRegistryBasePath + role,
 					fileName:                fileName,
-					parentName:              matches[1],
+					parentName:              strings.Replace(matches[1], db.internalImagePrefix, db.DockerRegistryBasePath, 1),
 					hasInternalDependencies: len(matches[2]) > 0,
 				}
 				db.dockerfiles = append(db.dockerfiles, &df)

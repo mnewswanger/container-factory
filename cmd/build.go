@@ -13,11 +13,11 @@ var buildCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		var db = dockerbuild.DockerBuild{
-			Debug:               commandLineFlags.debug,
-			Verbosity:           uint8(commandLineFlags.verbosity),
-			DockerfileDirectory: commandLineFlags.dockerfileDirectory,
-			InternalImagePrefix: commandLineFlags.dockerRegistryBasePath,
-			Tag:                 commandLineFlags.imageTag,
+			Debug:                  commandLineFlags.debug,
+			Verbosity:              uint8(commandLineFlags.verbosity),
+			DockerfileDirectory:    commandLineFlags.dockerfileDirectory,
+			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
+			Tag: commandLineFlags.imageTag,
 		}
 		db.BuildImages(commandLineFlags.forceRebuild)
 	},
