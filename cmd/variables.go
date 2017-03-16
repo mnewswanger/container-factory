@@ -7,6 +7,7 @@ type flags struct {
 	forceRebuild           bool
 	imageTag               string
 	dockerRegistryBasePath string
+	localOnly              bool
 }
 
 var commandLineFlags = flags{}

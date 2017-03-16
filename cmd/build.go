@@ -19,12 +19,13 @@ var buildCmd = &cobra.Command{
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
 			Tag: commandLineFlags.imageTag,
 		}
-		db.BuildImages(commandLineFlags.forceRebuild)
+		db.BuildImages(commandLineFlags.forceRebuild, !commandLineFlags.localOnly)
 	},
 }
 
 func init() {
 	RootCmd.AddCommand(buildCmd)
 	buildCmd.Flags().BoolVarP(&commandLineFlags.forceRebuild, "force-rebuild", "f", false, "Force rebuild on all images")
+	buildCmd.Flags().BoolVarP(&commandLineFlags.localOnly, "local-only", "l", false, "Skip push build images to upstream repository step")
 	buildCmd.Flags().StringVarP(&commandLineFlags.imageTag, "image-tag", "t", "", "Tag for docker images")
 }

@@ -66,7 +66,7 @@ func (db *DockerBuild) initialize() {
 }
 
 // BuildImages builds all docker images by heirarchy
-func (db *DockerBuild) BuildImages(forceRebuild bool) {
+func (db *DockerBuild) BuildImages(forceRebuild bool, pushToRemote bool) {
 	db.initialize()
 
 	db.loadDockerImageHeirarchy()
@@ -76,7 +76,7 @@ func (db *DockerBuild) BuildImages(forceRebuild bool) {
 	waitGroup.Add(1)
 	go func() {
 		defer waitGroup.Done()
-		db.buildImagesWithChildren("", forceRebuild)
+		db.buildImagesWithChildren("", forceRebuild, pushToRemote)
 	}()
 	waitGroup.Wait()
 }
@@ -113,7 +113,7 @@ func (db *DockerBuild) buildDockerImageHeirarchy() {
 	}
 }
 
-func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool) {
+func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool, pushToRemote bool) {
 	var waitGroup = sync.WaitGroup{}
 	children, hasChildren := db.dockerfileHeirarchy[parent]
 	if hasChildren {
@@ -131,19 +131,19 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool)
 				Debug:            db.Debug,
 				Verbosity:        db.Verbosity,
 			}.RunWithRealtimeOutput()
-
 			waitGroup.Add(1)
-			go func(image string) {
-				db.pushImageToRegistry(image)
-				waitGroup.Done()
-			}(c.name + ":" + db.Tag)
-
-			waitGroup.Add(1)
+			if pushToRemote {
+				go func(image string) {
+					db.pushImageToRegistry(image)
+					waitGroup.Done()
+				}(c.name + ":" + db.Tag)
+				waitGroup.Add(1)
+			}
 
 			// Build all of the children
 			go func(parent string) {
 				defer waitGroup.Done()
-				db.buildImagesWithChildren(parent, forceRebuild)
+				db.buildImagesWithChildren(parent, forceRebuild, pushToRemote)
 			}(c.name)
 		}
 	}
