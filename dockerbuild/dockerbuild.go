@@ -184,14 +184,18 @@ func (db *DockerBuild) loadDockerImageHeirarchy() {
 
 func (db *DockerBuild) loadDockerfiles(subpath string) {
 	for _, f := range filesystem.GetDirectoryContents(db.DockerfileDirectory + subpath) {
-		var subpathChild = subpath + f
-		if filesystem.IsDirectory(db.DockerfileDirectory + subpathChild) {
-			if f == ".tmp" {
-				continue
-			}
-			db.loadDockerfiles(subpathChild + "/")
+		var relativeFile = subpath + f
+
+		// Skip hidden files
+		if string(f[0]) == "." {
+			continue
+		}
+
+		// Loop through children; iterate any subfolders
+		if filesystem.IsDirectory(db.DockerfileDirectory + relativeFile) {
+			db.loadDockerfiles(relativeFile + "/")
 		} else {
-			var role = subpathChild
+			var role = relativeFile
 			var fileName = db.DockerfileDirectory + role
 			firstLine, err := ioutil.ReadFile(fileName)
 			if err != nil {
