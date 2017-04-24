@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.home.mikenewswanger.com/golang/docker-automatic-build/dockerbuild"
-	"gitlab.home.mikenewswanger.com/golang/filesystem"
 )
 
 // buildBaseImagesCmd represents the build command
@@ -16,11 +15,11 @@ var buildBaseImagesCmd = &cobra.Command{
 		var db = dockerbuild.DockerBuild{
 			Debug:                  commandLineFlags.debug,
 			Verbosity:              uint8(commandLineFlags.verbosity),
-			DockerfileDirectory:    filesystem.ForceTrailingSlash(commandLineFlags.dockerfileDirectory) + "dockerfiles",
+			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
 			Tag: commandLineFlags.imageTag,
 		}
-		db.BuildImages(commandLineFlags.forceRebuild, !commandLineFlags.localOnly)
+		db.BuildBaseImages(commandLineFlags.forceRebuild, !commandLineFlags.localOnly)
 	},
 }
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"gitlab.home.mikenewswanger.com/golang/docker-automatic-build/dockerbuild"
 )
 
 // buildDeploymentCmd represents the build command
@@ -10,14 +11,14 @@ var buildDeploymentCmd = &cobra.Command{
 	Short: "Build a single Docker deployment image",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		// var db = dockerbuild.DockerBuild{
-		// 	Debug:                  commandLineFlags.debug,
-		// 	Verbosity:              uint8(commandLineFlags.verbosity),
-		// 	DockerfileDirectory:    commandLineFlags.dockerfileDirectory,
-		// 	DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
-		// 	Tag: commandLineFlags.imageTag,
-		// }
-		// db.BuildImages(true, !commandLineFlags.localOnly)
+		var db = dockerbuild.DockerBuild{
+			Debug:                  commandLineFlags.debug,
+			Verbosity:              uint8(commandLineFlags.verbosity),
+			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
+			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
+			Tag: commandLineFlags.imageTag,
+		}
+		db.BuildDeployment(args[1], !commandLineFlags.localOnly)
 	},
 }
 

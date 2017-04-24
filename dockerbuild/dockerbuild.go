@@ -23,10 +23,11 @@ import (
 type DockerBuild struct {
 	Verbosity              uint8
 	Debug                  bool
-	DockerfileDirectory    string
+	DockerBaseDirectory    string
 	DockerRegistryBasePath string
 	Tag                    string
 
+	dockerfileDirectory string
 	dockerfiles         []*dockerfile
 	dockerfileHeirarchy map[string][]*dockerfile
 	imageBoolMap        map[string]bool
@@ -50,9 +51,8 @@ func (db *DockerBuild) initialize() {
 	// matches[1] == host; matches[2] == port; matches[3] == image
 	var matches = imageBaseRegex.FindStringSubmatch(db.DockerRegistryBasePath)
 	db.internalImagePrefix = matches[1] + matches[3]
-	db.DockerfileDirectory, _ = homedir.Expand(db.DockerfileDirectory)
-	db.DockerfileDirectory = filesystem.ForceTrailingSlash(db.DockerfileDirectory)
-	db.tempDir = filesystem.ForceTrailingSlash(db.DockerfileDirectory + ".tmp")
+	db.dockerfileDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "dockerfiles/")
+	db.tempDir = filesystem.ForceTrailingSlash(db.dockerfileDirectory + ".tmp")
 
 	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
 
@@ -65,8 +65,8 @@ func (db *DockerBuild) initialize() {
 	}
 }
 
-// BuildImages builds all docker images by heirarchy
-func (db *DockerBuild) BuildImages(forceRebuild bool, pushToRemote bool) {
+// BuildBaseImages builds all docker images by heirarchy
+func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	db.initialize()
 
 	db.loadDockerImageHeirarchy()
@@ -81,8 +81,13 @@ func (db *DockerBuild) BuildImages(forceRebuild bool, pushToRemote bool) {
 	waitGroup.Wait()
 }
 
-// PrintImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
-func (db *DockerBuild) PrintImageHeirarchy() {
+// BuildDeployment builds a docker image for a code deployment
+func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool) {
+
+}
+
+// PrintBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
+func (db *DockerBuild) PrintBaseImageHeirarchy() {
 	db.initialize()
 	db.loadDockerImageHeirarchy()
 	db.imageBoolMap = make(map[string]bool)
@@ -127,7 +132,7 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 				Name:             "Building Docker Image: " + c.name + ":" + db.Tag,
 				Executable:       "docker",
 				Arguments:        arguments,
-				WorkingDirectory: db.DockerfileDirectory + "/..",
+				WorkingDirectory: db.dockerfileDirectory + "/..",
 				Debug:            db.Debug,
 				Verbosity:        db.Verbosity,
 			}.RunWithRealtimeOutput()
@@ -183,7 +188,7 @@ func (db *DockerBuild) loadDockerImageHeirarchy() {
 }
 
 func (db *DockerBuild) loadDockerfiles(subpath string) {
-	for _, f := range filesystem.GetDirectoryContents(db.DockerfileDirectory + subpath) {
+	for _, f := range filesystem.GetDirectoryContents(db.dockerfileDirectory + subpath) {
 		var relativeFile = subpath + f
 
 		// Skip hidden files
@@ -192,11 +197,11 @@ func (db *DockerBuild) loadDockerfiles(subpath string) {
 		}
 
 		// Loop through children; iterate any subfolders
-		if filesystem.IsDirectory(db.DockerfileDirectory + relativeFile) {
+		if filesystem.IsDirectory(db.dockerfileDirectory + relativeFile) {
 			db.loadDockerfiles(relativeFile + "/")
 		} else {
 			var role = relativeFile
-			var fileName = db.DockerfileDirectory + role
+			var fileName = db.dockerfileDirectory + role
 			firstLine, err := ioutil.ReadFile(fileName)
 			if err != nil {
 				panic(err)

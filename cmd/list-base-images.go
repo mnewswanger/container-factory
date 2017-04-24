@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.home.mikenewswanger.com/golang/docker-automatic-build/dockerbuild"
-	"gitlab.home.mikenewswanger.com/golang/filesystem"
 )
 
 // listBaseImagesCmd represents the list command
@@ -16,10 +15,10 @@ var listBaseImagesCmd = &cobra.Command{
 		var db = dockerbuild.DockerBuild{
 			Debug:                  commandLineFlags.debug,
 			Verbosity:              uint8(commandLineFlags.verbosity),
-			DockerfileDirectory:    filesystem.ForceTrailingSlash(commandLineFlags.dockerfileDirectory) + "dockerfiles",
+			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
 		}
-		db.PrintImageHeirarchy()
+		db.PrintBaseImageHeirarchy()
 	},
 }
 

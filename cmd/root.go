@@ -27,7 +27,7 @@ func Execute() {
 
 func init() {
 	RootCmd.PersistentFlags().StringVarP(&commandLineFlags.dockerRegistryBasePath, "registry-base-path", "p", "", "Docker Registry Base Path i.e. registry.example.com/")
-	RootCmd.PersistentFlags().StringVarP(&commandLineFlags.dockerfileDirectory, "dockerfile-directory", "d", "", "Docker Build Directory")
+	RootCmd.PersistentFlags().StringVarP(&commandLineFlags.dockerBaseDirectory, "docker-base-directory", "d", "", "Docker Repository Base Directory")
 	RootCmd.PersistentFlags().CountVarP(&commandLineFlags.verbosity, "verbosity", "v", "Output verbosity")
 	RootCmd.PersistentFlags().BoolVarP(&commandLineFlags.debug, "debug", "", false, "Debug level output")
 }

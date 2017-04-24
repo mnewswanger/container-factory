@@ -3,7 +3,7 @@ package cmd
 type flags struct {
 	verbosity              int
 	debug                  bool
-	dockerfileDirectory    string
+	dockerBaseDirectory    string
 	forceRebuild           bool
 	imageTag               string
 	dockerRegistryBasePath string
