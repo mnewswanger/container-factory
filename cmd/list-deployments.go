@@ -7,9 +7,9 @@ import (
 )
 
 // listBaseImagesCmd represents the list command
-var listBaseImagesCmd = &cobra.Command{
-	Use:   "list-base-images",
-	Short: "List Dockerfile Heirarchy",
+var listDeploymentsCmd = &cobra.Command{
+	Use:   "list-deployments",
+	Short: "List Configured Deployments",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		var db = dockerbuild.DockerBuild{
@@ -18,10 +18,10 @@ var listBaseImagesCmd = &cobra.Command{
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
 		}
-		db.PrintBaseImageHeirarchy()
+		db.PrintDeployments()
 	},
 }
 
 func init() {
-	RootCmd.AddCommand(listBaseImagesCmd)
+	RootCmd.AddCommand(listDeploymentsCmd)
 }

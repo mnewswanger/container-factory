@@ -27,12 +27,14 @@ type DockerBuild struct {
 	DockerRegistryBasePath string
 	Tag                    string
 
+	deploymentDirectory string
 	dockerfileDirectory string
 	dockerfiles         []*dockerfile
 	dockerfileHeirarchy map[string][]*dockerfile
 	imageBoolMap        map[string]bool
 	internalImagePrefix string
-	tempDir             string
+
+	fromSplitRegex *regexp.Regexp
 }
 
 type dockerfile struct {
@@ -48,11 +50,16 @@ func (db *DockerBuild) initialize() {
 		os.Exit(100)
 	}
 	var imageBaseRegex, _ = regexp.Compile("^([\\w\\.\\-\\_]+)(:\\d+)?(/.*)")
-	// matches[1] == host; matches[2] == port; matches[3] == image
+
+	// matches[1] => host; matches[2] => port; matches[3] => image
 	var matches = imageBaseRegex.FindStringSubmatch(db.DockerRegistryBasePath)
 	db.internalImagePrefix = matches[1] + matches[3]
+
+	// matches[1] => image; matches[2] w/ length > 0 => internal; matches[3] => role
+	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+((" + db.internalImagePrefix + ")?([\\w\\-\\_\\/\\:\\.]+))\\s*\\n?")
+
 	db.dockerfileDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "dockerfiles/")
-	db.tempDir = filesystem.ForceTrailingSlash(db.dockerfileDirectory + ".tmp")
+	db.deploymentDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "deployments/")
 
 	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
 
@@ -69,8 +76,10 @@ func (db *DockerBuild) initialize() {
 func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	db.initialize()
 
+	var tempDir = db.dockerfileDirectory + ".tmp/"
+
 	db.loadDockerImageHeirarchy()
-	db.createDynamicBuildFiles()
+	db.createDynamicBuildFiles(tempDir)
 
 	var waitGroup = sync.WaitGroup{}
 	waitGroup.Add(1)
@@ -79,11 +88,14 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 		db.buildImagesWithChildren("", forceRebuild, pushToRemote)
 	}()
 	waitGroup.Wait()
+
+	filesystem.RemoveDirectory(tempDir, true)
 }
 
 // BuildDeployment builds a docker image for a code deployment
 func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool) {
-
+	var tempDir = db.deploymentDirectory + ".tmp"
+	filesystem.RemoveDirectory(tempDir, true)
 }
 
 // PrintBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
@@ -106,6 +118,14 @@ func (db *DockerBuild) PrintBaseImageHeirarchy() {
 			color.Red(dfname)
 		}
 	}
+}
+
+// PrintDeployments prints a list of configured deployments
+func (db *DockerBuild) PrintDeployments() {
+	db.initialize()
+
+	db.printFolderDeployments("")
+	println()
 }
 
 func (db *DockerBuild) buildDockerImageHeirarchy() {
@@ -155,31 +175,37 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 	waitGroup.Wait()
 }
 
-func (db *DockerBuild) createDynamicBuildFiles() {
-	filesystem.CreateDirectory(db.tempDir)
-	var regex, _ = regexp.Compile("^FROM.*")
-	for i := range db.dockerfiles {
-		// Skip if based on an external image
-		if !db.dockerfiles[i].hasInternalDependencies {
-			continue
-		}
-		// Determine the new filename
-		var h = sha256.New()
-		h.Write([]byte(db.dockerfiles[i].fileName))
-		var newFilename = db.tempDir + hex.EncodeToString(h.Sum(nil))
+func (db *DockerBuild) createDynamicBuildFiles(tempDir string) {
+	filesystem.CreateDirectory(tempDir)
 
-		// Write out the new file with the tagged base image
-		filesystem.WriteFile(
-			newFilename,
-			[]byte(
-				regex.ReplaceAllString(
-					filesystem.LoadFileIfExists(db.dockerfiles[i].fileName),
-					"FROM "+db.dockerfiles[i].parentName+":"+db.Tag,
-				),
-			),
-			0644)
-		db.dockerfiles[i].fileName = newFilename
+	for i := range db.dockerfiles {
+		db.dockerfiles[i].fileName = db.createDynamicDockerfile(tempDir, db.dockerfiles[i].fileName)
 	}
+}
+
+func (db *DockerBuild) createDynamicDockerfile(tempDir string, sourceFilename string) string {
+	// Determine the new filename
+	var h = sha256.New()
+	h.Write([]byte(sourceFilename))
+	var dynamicDockerfileFilename = tempDir + hex.EncodeToString(h.Sum(nil))
+
+	var fileContents = filesystem.LoadFileIfExists(sourceFilename)
+
+	var matches = db.fromSplitRegex.FindAllStringSubmatch(fileContents, -1)
+
+	for _, match := range matches {
+		if len(match[2]) > 0 {
+			fileContents = strings.Replace(fileContents, match[1], db.DockerRegistryBasePath+match[3]+":"+db.Tag, 1)
+		}
+	}
+
+	// Write out the new file with the tagged base image
+	filesystem.WriteFile(
+		dynamicDockerfileFilename,
+		[]byte(fileContents),
+		0644)
+
+	return dynamicDockerfileFilename
 }
 
 func (db *DockerBuild) loadDockerImageHeirarchy() {
@@ -210,14 +236,12 @@ func (db *DockerBuild) loadDockerfiles(subpath string) {
 			reader := bufio.NewReader(readbuffer)
 			line, _, err := reader.ReadLine()
 			if err == nil {
-				fromRegex, _ := regexp.Compile("^FROM\\s+((" + db.internalImagePrefix + ")?(.+))\\s*$")
-				// matches[1] == image; matches[2] w/ length > 0 == internal; matches[3] == role
-				matches := fromRegex.FindStringSubmatch(string(line))
+				matches := db.fromSplitRegex.FindStringSubmatch(string(line))
 
 				var df = dockerfile{
-					name:                    db.DockerRegistryBasePath + role,
+					name:                    db.internalImagePrefix + role,
 					fileName:                fileName,
-					parentName:              strings.Replace(matches[1], db.internalImagePrefix, db.DockerRegistryBasePath, 1),
+					parentName:              matches[1],
 					hasInternalDependencies: len(matches[2]) > 0,
 				}
 				db.dockerfiles = append(db.dockerfiles, &df)
@@ -239,6 +263,24 @@ func (db *DockerBuild) printChildImages(parent string, level uint8) {
 			color.Green(df.name)
 			db.printChildImages(df.name, level+1)
 			db.imageBoolMap[df.name] = true
+		}
+	}
+}
+
+func (db *DockerBuild) printFolderDeployments(subpath string) {
+	for _, f := range filesystem.GetDirectoryContents(db.deploymentDirectory + subpath) {
+		var relativeFile = subpath + f
+
+		// Skip hidden files
+		if string(f[0]) == "." {
+			continue
+		}
+
+		// Loop through children; iterate any subfolders
+		if filesystem.IsFile(db.deploymentDirectory + relativeFile) {
+			println(relativeFile)
+		} else {
+			db.printFolderDeployments(relativeFile + "/")
 		}
 	}
 }
