@@ -16,14 +16,16 @@ var buildDeploymentCmd = &cobra.Command{
 			Verbosity:              uint8(commandLineFlags.verbosity),
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
-			Tag: commandLineFlags.imageTag,
+			Tag:           commandLineFlags.imageTag,
+			DeploymentTag: commandLineFlags.deploymentImageTag,
 		}
-		db.BuildDeployment(args[1], !commandLineFlags.localOnly)
+		db.BuildDeployment(args[0], !commandLineFlags.localOnly)
 	},
 }
 
 func init() {
 	RootCmd.AddCommand(buildDeploymentCmd)
 	buildDeploymentCmd.Flags().BoolVarP(&commandLineFlags.localOnly, "local-only", "l", false, "Skip push build images to upstream repository step")
-	buildDeploymentCmd.Flags().StringVarP(&commandLineFlags.imageTag, "image-tag", "t", "", "Tag for docker images")
+	buildDeploymentCmd.Flags().StringVarP(&commandLineFlags.deploymentImageTag, "deployment-image-tag", "", "", "Tag for docker deployment")
+	buildDeploymentCmd.Flags().StringVarP(&commandLineFlags.imageTag, "base-image-tag", "t", "", "Tag for docker images during deployment build process")
 }

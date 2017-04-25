@@ -25,6 +25,7 @@ type DockerBuild struct {
 	Debug                  bool
 	DockerBaseDirectory    string
 	DockerRegistryBasePath string
+	DeploymentTag          string
 	Tag                    string
 
 	deploymentDirectory string
@@ -56,7 +57,7 @@ func (db *DockerBuild) initialize() {
 	db.internalImagePrefix = matches[1] + matches[3]
 
 	// matches[1] => image; matches[2] w/ length > 0 => internal; matches[3] => role
-	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+((" + db.internalImagePrefix + ")?([\\w\\-\\_\\/\\:\\.]+))\\s*\\n?")
+	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+((" + db.internalImagePrefix + ")?([\\w\\-\\_\\/\\:\\.]+))[\\s\\n]")
 
 	db.dockerfileDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "dockerfiles/")
 	db.deploymentDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "deployments/")
@@ -70,16 +71,20 @@ func (db *DockerBuild) initialize() {
 		}
 		db.Tag = currentUser.Username
 	}
+
+	if db.DeploymentTag == "" {
+		db.DeploymentTag = db.Tag
+	}
 }
 
 // BuildBaseImages builds all docker images by heirarchy
 func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	db.initialize()
 
-	var tempDir = db.dockerfileDirectory + ".tmp/"
+	var tempDir, _ = ioutil.TempDir(db.dockerfileDirectory, ".tmp-")
 
 	db.loadDockerImageHeirarchy()
-	db.createDynamicBuildFiles(tempDir)
+	db.createDynamicBuildFiles(filesystem.ForceTrailingSlash(tempDir))
 
 	var waitGroup = sync.WaitGroup{}
 	waitGroup.Add(1)
@@ -94,7 +99,38 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 
 // BuildDeployment builds a docker image for a code deployment
 func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool) {
-	var tempDir = db.deploymentDirectory + ".tmp"
+	db.initialize()
+
+	var deploymentFilename = db.deploymentDirectory + deploymentName
+	if !filesystem.IsFile(deploymentFilename) {
+		color.Red("Deployment does not exist: " + deploymentName)
+		os.Exit(101)
+	}
+	var tempDir, _ = ioutil.TempDir(db.deploymentDirectory, ".tmp-")
+	var dockerfile = db.createDynamicDockerfile(filesystem.ForceTrailingSlash(tempDir), deploymentFilename)
+
+	var imageName = db.DockerRegistryBasePath + "deployments/" + deploymentName + ":" + db.DeploymentTag
+	executil.Command{
+		Name:       "Build Deployment - " + imageName,
+		Executable: "docker",
+		Arguments: []string{
+			"build",
+			"--no-cache",
+			"-t",
+			imageName,
+			"-f",
+			dockerfile,
+			".",
+		},
+		WorkingDirectory: db.deploymentDirectory,
+		Debug:            db.Debug,
+		Verbosity:        db.Verbosity,
+	}.RunWithRealtimeOutput()
+
+	if pushToRemote {
+		db.pushImageToRegistry(imageName)
+	}
+
 	filesystem.RemoveDirectory(tempDir, true)
 }
 
@@ -175,19 +211,17 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 	waitGroup.Wait()
 }
 
-func (db *DockerBuild) createDynamicBuildFiles(tempDir string) {
-	filesystem.CreateDirectory(tempDir)
-
+func (db *DockerBuild) createDynamicBuildFiles(targetDirectory string) {
 	for i := range db.dockerfiles {
-		db.dockerfiles[i].fileName = db.createDynamicDockerfile(tempDir, db.dockerfiles[i].fileName)
+		db.dockerfiles[i].fileName = db.createDynamicDockerfile(targetDirectory, db.dockerfiles[i].fileName)
 	}
 }
 
-func (db *DockerBuild) createDynamicDockerfile(tempDir string, sourceFilename string) string {
+func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFilename string) string {
 	// Determine the new filename
 	var h = sha256.New()
 	h.Write([]byte(sourceFilename))
-	var dynamicDockerfileFilename = tempDir + hex.EncodeToString(h.Sum(nil))
+	var dynamicDockerfileFilename = targetDirectory + hex.EncodeToString(h.Sum(nil))
 
 	var fileContents = filesystem.LoadFileIfExists(sourceFilename)
 
