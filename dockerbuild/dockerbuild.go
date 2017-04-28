@@ -57,7 +57,7 @@ func (db *DockerBuild) initialize() {
 	db.internalImagePrefix = matches[1] + matches[3]
 
 	// matches[1] => image; matches[2] w/ length > 0 => internal; matches[3] => role
-	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+((" + db.internalImagePrefix + ")?([\\w\\-\\_\\/\\:\\.]+))[\\s\\n]")
+	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+((" + db.internalImagePrefix + ")?([\\w\\-\\_\\/\\:\\.]+))([\\s\\n])?")
 
 	db.dockerfileDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "dockerfiles/")
 	db.deploymentDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "deployments/")
@@ -81,9 +81,9 @@ func (db *DockerBuild) initialize() {
 func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	db.initialize()
 
-	var tempDir, _ = ioutil.TempDir(db.dockerfileDirectory, ".tmp-")
-
 	db.loadDockerImageHeirarchy()
+
+	var tempDir, _ = ioutil.TempDir(db.dockerfileDirectory, ".tmp-")
 	db.createDynamicBuildFiles(filesystem.ForceTrailingSlash(tempDir))
 
 	var waitGroup = sync.WaitGroup{}
@@ -179,13 +179,18 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 	children, hasChildren := db.dockerfileHeirarchy[parent]
 	if hasChildren {
 		for _, c := range children {
-			var arguments = []string{"build", "-t", c.name + ":" + db.Tag, "-f", c.fileName}
+			var imageName = c.name
+			if c.hasInternalDependencies {
+				imageName = db.DockerRegistryBasePath + c.name
+			}
+
+			var arguments = []string{"build", "-t", imageName + ":" + db.Tag, "-f", c.fileName}
 			if forceRebuild {
 				arguments = append(arguments, "--no-cache=true")
 			}
 			arguments = append(arguments, ".")
 			executil.Command{
-				Name:             "Building Docker Image: " + c.name + ":" + db.Tag,
+				Name:             "Building Docker Image: " + imageName + ":" + db.Tag,
 				Executable:       "docker",
 				Arguments:        arguments,
 				WorkingDirectory: db.dockerfileDirectory + "/..",
@@ -197,7 +202,7 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 				go func(image string) {
 					db.pushImageToRegistry(image)
 					waitGroup.Done()
-				}(c.name + ":" + db.Tag)
+				}(imageName + ":" + db.Tag)
 				waitGroup.Add(1)
 			}
 
@@ -243,11 +248,11 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 }
 
 func (db *DockerBuild) loadDockerImageHeirarchy() {
-	db.loadDockerfiles("")
+	db.loadBaseImageDockerfiles("")
 	db.buildDockerImageHeirarchy()
 }
 
-func (db *DockerBuild) loadDockerfiles(subpath string) {
+func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 	for _, f := range filesystem.GetDirectoryContents(db.dockerfileDirectory + subpath) {
 		var relativeFile = subpath + f
 
@@ -258,7 +263,7 @@ func (db *DockerBuild) loadDockerfiles(subpath string) {
 
 		// Loop through children; iterate any subfolders
 		if filesystem.IsDirectory(db.dockerfileDirectory + relativeFile) {
-			db.loadDockerfiles(relativeFile + "/")
+			db.loadBaseImageDockerfiles(relativeFile + "/")
 		} else {
 			var role = relativeFile
 			var fileName = db.dockerfileDirectory + role
@@ -272,11 +277,18 @@ func (db *DockerBuild) loadDockerfiles(subpath string) {
 			if err == nil {
 				matches := db.fromSplitRegex.FindStringSubmatch(string(line))
 
+				var parentName = ""
+				var hasInternalDependencies = len(matches[2]) > 0
+
+				if hasInternalDependencies {
+					parentName = strings.Replace(matches[1], db.internalImagePrefix, "", 1)
+				}
+
 				var df = dockerfile{
-					name:                    db.internalImagePrefix + role,
+					name:                    role,
 					fileName:                fileName,
-					parentName:              matches[1],
-					hasInternalDependencies: len(matches[2]) > 0,
+					parentName:              parentName,
+					hasInternalDependencies: hasInternalDependencies,
 				}
 				db.dockerfiles = append(db.dockerfiles, &df)
 			}
