@@ -179,10 +179,7 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 	children, hasChildren := db.dockerfileHeirarchy[parent]
 	if hasChildren {
 		for _, c := range children {
-			var imageName = c.name
-			if c.hasInternalDependencies {
-				imageName = db.DockerRegistryBasePath + c.name
-			}
+			var imageName = db.DockerRegistryBasePath + c.name
 
 			var arguments = []string{"build", "-t", imageName + ":" + db.Tag, "-f", c.fileName}
 			if forceRebuild {
@@ -333,7 +330,7 @@ func (db *DockerBuild) printFolderDeployments(subpath string) {
 
 func (db *DockerBuild) pushImageToRegistry(image string) {
 	executil.Command{
-		Name:       "Pushing Docker Image to Registry:" + image,
+		Name:       "Pushing Docker Image to Registry: " + image,
 		Executable: "docker",
 		Arguments:  []string{"push", image},
 		Debug:      db.Debug,
