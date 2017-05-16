@@ -33,7 +33,6 @@ type DockerBuild struct {
 	dockerfiles         []*dockerfile
 	dockerfileHeirarchy map[string][]*dockerfile
 	imageBoolMap        map[string]bool
-	internalImagePrefix string
 
 	fromSplitRegex *regexp.Regexp
 }
@@ -50,17 +49,12 @@ func (db *DockerBuild) initialize() {
 		color.Red("Registry Base Path must be specified")
 		os.Exit(100)
 	}
-	var imageBaseRegex, _ = regexp.Compile("^([\\w\\.\\-\\_]+)(:\\d+)?(/.*)")
-
-	// matches[1] => host; matches[2] => port; matches[3] => image
-	var matches = imageBaseRegex.FindStringSubmatch(db.DockerRegistryBasePath)
-	db.internalImagePrefix = matches[1] + matches[3]
 
 	// matches[1] => image; matches[2] w/ length > 0 => internal; matches[3] => role
-	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+((" + db.internalImagePrefix + ")?([\\w\\-\\_\\/\\:\\.]+))([\\s\\n])?")
+	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+(({{\\s+local\\s+}}/)?([\\w\\-\\_\\/\\:\\.\\{\\}]+))([\\s\\n])?")
 
-	db.dockerfileDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "dockerfiles/")
-	db.deploymentDirectory, _ = homedir.Expand(filesystem.ForceTrailingSlash(db.DockerBaseDirectory) + "deployments/")
+	db.dockerfileDirectory, _ = homedir.Expand(db.DockerBaseDirectory + "/dockerfiles/")
+	db.deploymentDirectory, _ = homedir.Expand(db.DockerBaseDirectory + "/deployments/")
 
 	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
 
@@ -80,11 +74,14 @@ func (db *DockerBuild) initialize() {
 // BuildBaseImages builds all docker images by heirarchy
 func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	db.initialize()
+	var fs = filesystem.Filesystem{
+		Verbosity: db.Verbosity,
+	}
 
 	db.loadDockerImageHeirarchy()
 
 	var tempDir, _ = ioutil.TempDir(db.dockerfileDirectory, ".tmp-")
-	db.createDynamicBuildFiles(filesystem.ForceTrailingSlash(tempDir))
+	db.createDynamicBuildFiles(tempDir + "/")
 
 	var waitGroup = sync.WaitGroup{}
 	waitGroup.Add(1)
@@ -94,20 +91,23 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	}()
 	waitGroup.Wait()
 
-	filesystem.RemoveDirectory(tempDir, true)
+	fs.RemoveDirectory(tempDir, true)
 }
 
 // BuildDeployment builds a docker image for a code deployment
 func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool) {
 	db.initialize()
+	var fs = filesystem.Filesystem{
+		Verbosity: db.Verbosity,
+	}
 
 	var deploymentFilename = db.deploymentDirectory + deploymentName
-	if !filesystem.IsFile(deploymentFilename) {
+	if !fs.IsFile(deploymentFilename) {
 		color.Red("Deployment does not exist: " + deploymentName)
 		os.Exit(101)
 	}
 	var tempDir, _ = ioutil.TempDir(db.deploymentDirectory, ".tmp-")
-	var dockerfile = db.createDynamicDockerfile(filesystem.ForceTrailingSlash(tempDir), deploymentFilename)
+	var dockerfile = db.createDynamicDockerfile(tempDir+"/", deploymentFilename)
 
 	var imageName = db.DockerRegistryBasePath + "deployments/" + deploymentName + ":" + db.DeploymentTag
 	executil.Command{
@@ -131,7 +131,7 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 		db.pushImageToRegistry(imageName)
 	}
 
-	filesystem.RemoveDirectory(tempDir, true)
+	fs.RemoveDirectory(tempDir, true)
 }
 
 // PrintBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
@@ -220,12 +220,21 @@ func (db *DockerBuild) createDynamicBuildFiles(targetDirectory string) {
 }
 
 func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFilename string) string {
+	var fs = filesystem.Filesystem{
+		Verbosity: db.Verbosity,
+	}
+	var err error
+	var fileContents string
+
 	// Determine the new filename
 	var h = sha256.New()
 	h.Write([]byte(sourceFilename))
 	var dynamicDockerfileFilename = targetDirectory + hex.EncodeToString(h.Sum(nil))
 
-	var fileContents = filesystem.LoadFileIfExists(sourceFilename)
+	fileContents, err = fs.LoadFileIfExists(sourceFilename)
+	if err != nil {
+		panic(err)
+	}
 
 	var matches = db.fromSplitRegex.FindAllStringSubmatch(fileContents, -1)
 
@@ -236,10 +245,12 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 	}
 
 	// Write out the new file with the tagged base image
-	filesystem.WriteFile(
+	if e := fs.WriteFile(
 		dynamicDockerfileFilename,
 		[]byte(fileContents),
-		0644)
+		0644); e != nil {
+		panic(e)
+	}
 
 	return dynamicDockerfileFilename
 }
@@ -250,7 +261,17 @@ func (db *DockerBuild) loadDockerImageHeirarchy() {
 }
 
 func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
-	for _, f := range filesystem.GetDirectoryContents(db.dockerfileDirectory + subpath) {
+	var fs = filesystem.Filesystem{
+		Verbosity: db.Verbosity,
+	}
+	var directoryContents []string
+	var err error
+
+	directoryContents, err = fs.GetDirectoryContents(db.dockerfileDirectory + subpath)
+	if err != nil {
+		panic(err)
+	}
+	for _, f := range directoryContents {
 		var relativeFile = subpath + f
 
 		// Skip hidden files
@@ -259,7 +280,7 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 		}
 
 		// Loop through children; iterate any subfolders
-		if filesystem.IsDirectory(db.dockerfileDirectory + relativeFile) {
+		if fs.IsDirectory(db.dockerfileDirectory + relativeFile) {
 			db.loadBaseImageDockerfiles(relativeFile + "/")
 		} else {
 			var role = relativeFile
@@ -278,7 +299,7 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 				var hasInternalDependencies = len(matches[2]) > 0
 
 				if hasInternalDependencies {
-					parentName = strings.Replace(matches[1], db.internalImagePrefix, "", 1)
+					parentName = strings.Replace(matches[1], matches[2], "", 1)
 				}
 
 				var df = dockerfile{
@@ -311,7 +332,17 @@ func (db *DockerBuild) printChildImages(parent string, level uint8) {
 }
 
 func (db *DockerBuild) printFolderDeployments(subpath string) {
-	for _, f := range filesystem.GetDirectoryContents(db.deploymentDirectory + subpath) {
+	var fs = filesystem.Filesystem{
+		Verbosity: db.Verbosity,
+	}
+	var directoryContents []string
+	var err error
+	directoryContents, err = fs.GetDirectoryContents(db.deploymentDirectory + subpath)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, f := range directoryContents {
 		var relativeFile = subpath + f
 
 		// Skip hidden files
@@ -320,7 +351,7 @@ func (db *DockerBuild) printFolderDeployments(subpath string) {
 		}
 
 		// Loop through children; iterate any subfolders
-		if filesystem.IsFile(db.deploymentDirectory + relativeFile) {
+		if fs.IsFile(db.deploymentDirectory + relativeFile) {
 			println(relativeFile)
 		} else {
 			db.printFolderDeployments(relativeFile + "/")
