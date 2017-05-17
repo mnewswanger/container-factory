@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/fatih/color"
-	"github.com/mitchellh/go-homedir"
+	"github.com/sirupsen/logrus"
 
 	"gitlab.home.mikenewswanger.com/golang/executil"
 	"gitlab.home.mikenewswanger.com/golang/filesystem"
@@ -22,17 +22,19 @@ import (
 // DockerBuild provides build services for docker images
 type DockerBuild struct {
 	Verbosity              uint8
-	Debug                  bool
 	DockerBaseDirectory    string
 	DockerRegistryBasePath string
 	DeploymentTag          string
+	Logger                 *logrus.Logger
 	Tag                    string
 
 	deploymentDirectory string
 	dockerfileDirectory string
 	dockerfiles         []*dockerfile
 	dockerfileHeirarchy map[string][]*dockerfile
+	fs                  *filesystem.Filesystem
 	imageBoolMap        map[string]bool
+	initialized         bool
 
 	fromSplitRegex *regexp.Regexp
 }
@@ -40,24 +42,61 @@ type DockerBuild struct {
 type dockerfile struct {
 	name                    string
 	parentName              string
-	fileName                string
+	filename                string
 	hasInternalDependencies bool
 }
 
 func (db *DockerBuild) initialize() {
+	// No need to re-initialize if we've alredy done it
+	if db.initialized {
+		return
+	}
+
+	// Set up the logger
+	db.Logger = logrus.New()
+	switch db.Verbosity {
+	case 0:
+		db.Logger.Level = logrus.ErrorLevel
+		break
+	case 1:
+		db.Logger.Level = logrus.WarnLevel
+		break
+	case 2:
+		fallthrough
+	case 3:
+		db.Logger.Level = logrus.InfoLevel
+		break
+	default:
+		db.Logger.Level = logrus.DebugLevel
+		break
+	}
+
+	db.Logger.Info("Initializing DockerBuild System")
+
 	if db.DockerRegistryBasePath == "" {
-		color.Red("Registry Base Path must be specified")
-		os.Exit(100)
+		db.Logger.Fatal("Registry Base Path must be specified")
 	}
 
 	// matches[1] => image; matches[2] w/ length > 0 => internal; matches[3] => role
 	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+(({{\\s+local\\s+}}/)?([\\w\\-\\_\\/\\:\\.\\{\\}]+))([\\s\\n])?")
 
-	db.dockerfileDirectory, _ = homedir.Expand(db.DockerBaseDirectory + "/dockerfiles/")
-	db.deploymentDirectory, _ = homedir.Expand(db.DockerBaseDirectory + "/deployments/")
+	db.Logger.Debug("Initializing Filesystem utility")
+	db.fs = &filesystem.Filesystem{
+		Verbosity: db.Verbosity,
+		Logger:    db.Logger,
+	}
 
-	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
+	// Determine environment paths
+	db.dockerfileDirectory, _ = db.fs.BuildAbsolutePathFromHome(db.DockerBaseDirectory + "/dockerfiles/")
+	db.Logger.WithFields(logrus.Fields{
+		"path": db.dockerfileDirectory,
+	}).Debug("Set dockerfile directory")
+	db.deploymentDirectory, _ = db.fs.BuildAbsolutePathFromHome(db.DockerBaseDirectory + "/deployments/")
+	db.Logger.WithFields(logrus.Fields{
+		"path": db.deploymentDirectory,
+	}).Debug("Set deployment directory")
 
+	// Determine tagging for images and deployments
 	if db.Tag == "" {
 		currentUser, err := user.Current()
 		if err != nil {
@@ -65,18 +104,20 @@ func (db *DockerBuild) initialize() {
 		}
 		db.Tag = currentUser.Username
 	}
-
 	if db.DeploymentTag == "" {
 		db.DeploymentTag = db.Tag
 	}
+	db.Logger.WithFields(logrus.Fields{
+		"tag":            db.Tag,
+		"deployment_tag": db.DeploymentTag,
+	}).Info("Set build tags")
+
+	db.initialized = true
 }
 
 // BuildBaseImages builds all docker images by heirarchy
 func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	db.initialize()
-	var fs = filesystem.Filesystem{
-		Verbosity: db.Verbosity,
-	}
 
 	db.loadDockerImageHeirarchy()
 
@@ -91,18 +132,20 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	}()
 	waitGroup.Wait()
 
-	fs.RemoveDirectory(tempDir, true)
+	db.fs.RemoveDirectory(tempDir, true)
 }
 
 // BuildDeployment builds a docker image for a code deployment
 func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool) {
 	db.initialize()
-	var fs = filesystem.Filesystem{
-		Verbosity: db.Verbosity,
+
+	if db.DockerRegistryBasePath == "" {
+		db.Logger.Fatal("Registry Base Path must be specified")
+		os.Exit(100)
 	}
 
 	var deploymentFilename = db.deploymentDirectory + deploymentName
-	if !fs.IsFile(deploymentFilename) {
+	if !db.fs.IsFile(deploymentFilename) {
 		color.Red("Deployment does not exist: " + deploymentName)
 		os.Exit(101)
 	}
@@ -123,7 +166,7 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 			".",
 		},
 		WorkingDirectory: db.deploymentDirectory,
-		Debug:            db.Debug,
+		Logger:           db.Logger,
 		Verbosity:        db.Verbosity,
 	}.RunWithRealtimeOutput()
 
@@ -131,7 +174,7 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 		db.pushImageToRegistry(imageName)
 	}
 
-	fs.RemoveDirectory(tempDir, true)
+	db.fs.RemoveDirectory(tempDir, true)
 }
 
 // PrintBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
@@ -165,6 +208,8 @@ func (db *DockerBuild) PrintDeployments() {
 }
 
 func (db *DockerBuild) buildDockerImageHeirarchy() {
+	db.Logger.Info("Building Docker image heirarchy")
+	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
 	for _, df := range db.dockerfiles {
 		if df.hasInternalDependencies {
 			db.dockerfileHeirarchy[df.parentName] = append(db.dockerfileHeirarchy[df.parentName], df)
@@ -179,9 +224,9 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 	children, hasChildren := db.dockerfileHeirarchy[parent]
 	if hasChildren {
 		for _, c := range children {
-			var imageName = db.DockerRegistryBasePath + c.name
+			var imageName = db.fs.ForceTrailingSlash(db.DockerRegistryBasePath) + c.name
 
-			var arguments = []string{"build", "-t", imageName + ":" + db.Tag, "-f", c.fileName}
+			var arguments = []string{"build", "-t", imageName + ":" + db.Tag, "-f", c.filename}
 			if forceRebuild {
 				arguments = append(arguments, "--no-cache=true")
 			}
@@ -191,7 +236,7 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 				Executable:       "docker",
 				Arguments:        arguments,
 				WorkingDirectory: db.dockerfileDirectory + "/..",
-				Debug:            db.Debug,
+				Logger:           db.Logger,
 				Verbosity:        db.Verbosity,
 			}.RunWithRealtimeOutput()
 			waitGroup.Add(1)
@@ -214,15 +259,17 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 }
 
 func (db *DockerBuild) createDynamicBuildFiles(targetDirectory string) {
-	for i := range db.dockerfiles {
-		db.dockerfiles[i].fileName = db.createDynamicDockerfile(targetDirectory, db.dockerfiles[i].fileName)
+	db.Logger.Info("Creating generated Dockerfiles")
+	for _, dockerfile := range db.dockerfiles {
+		db.Logger.WithFields(logrus.Fields{
+			"name":     dockerfile.name,
+			"filename": dockerfile.filename,
+		}).Debug("Compiling Dockerfile")
+		dockerfile.filename = db.createDynamicDockerfile(targetDirectory, dockerfile.filename)
 	}
 }
 
 func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFilename string) string {
-	var fs = filesystem.Filesystem{
-		Verbosity: db.Verbosity,
-	}
 	var err error
 	var fileContents string
 
@@ -231,7 +278,7 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 	h.Write([]byte(sourceFilename))
 	var dynamicDockerfileFilename = targetDirectory + hex.EncodeToString(h.Sum(nil))
 
-	fileContents, err = fs.LoadFileIfExists(sourceFilename)
+	fileContents, err = db.fs.LoadFileIfExists(sourceFilename)
 	if err != nil {
 		panic(err)
 	}
@@ -240,12 +287,12 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 
 	for _, match := range matches {
 		if len(match[2]) > 0 {
-			fileContents = strings.Replace(fileContents, match[1], db.DockerRegistryBasePath+match[3]+":"+db.Tag, 1)
+			fileContents = strings.Replace(fileContents, match[1], db.fs.ForceTrailingSlash(db.DockerRegistryBasePath)+match[3]+":"+db.Tag, 1)
 		}
 	}
 
 	// Write out the new file with the tagged base image
-	if e := fs.WriteFile(
+	if e := db.fs.WriteFile(
 		dynamicDockerfileFilename,
 		[]byte(fileContents),
 		0644); e != nil {
@@ -256,18 +303,20 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 }
 
 func (db *DockerBuild) loadDockerImageHeirarchy() {
+	db.Logger.Info("Loading DockerFiles to build")
 	db.loadBaseImageDockerfiles("")
 	db.buildDockerImageHeirarchy()
 }
 
 func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
-	var fs = filesystem.Filesystem{
-		Verbosity: db.Verbosity,
-	}
+	db.Logger.WithFields(logrus.Fields{
+		"namespace": "/" + subpath,
+	}).Debug("Processing DockerFiles")
+
 	var directoryContents []string
 	var err error
 
-	directoryContents, err = fs.GetDirectoryContents(db.dockerfileDirectory + subpath)
+	directoryContents, err = db.fs.GetDirectoryContents(db.dockerfileDirectory + subpath)
 	if err != nil {
 		panic(err)
 	}
@@ -280,7 +329,7 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 		}
 
 		// Loop through children; iterate any subfolders
-		if fs.IsDirectory(db.dockerfileDirectory + relativeFile) {
+		if db.fs.IsDirectory(db.dockerfileDirectory + relativeFile) {
 			db.loadBaseImageDockerfiles(relativeFile + "/")
 		} else {
 			var role = relativeFile
@@ -304,7 +353,7 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 
 				var df = dockerfile{
 					name:                    role,
-					fileName:                fileName,
+					filename:                fileName,
 					parentName:              parentName,
 					hasInternalDependencies: hasInternalDependencies,
 				}
@@ -332,12 +381,9 @@ func (db *DockerBuild) printChildImages(parent string, level uint8) {
 }
 
 func (db *DockerBuild) printFolderDeployments(subpath string) {
-	var fs = filesystem.Filesystem{
-		Verbosity: db.Verbosity,
-	}
 	var directoryContents []string
 	var err error
-	directoryContents, err = fs.GetDirectoryContents(db.deploymentDirectory + subpath)
+	directoryContents, err = db.fs.GetDirectoryContents(db.deploymentDirectory + subpath)
 	if err != nil {
 		panic(err)
 	}
@@ -351,7 +397,7 @@ func (db *DockerBuild) printFolderDeployments(subpath string) {
 		}
 
 		// Loop through children; iterate any subfolders
-		if fs.IsFile(db.deploymentDirectory + relativeFile) {
+		if db.fs.IsFile(db.deploymentDirectory + relativeFile) {
 			println(relativeFile)
 		} else {
 			db.printFolderDeployments(relativeFile + "/")
@@ -364,7 +410,7 @@ func (db *DockerBuild) pushImageToRegistry(image string) {
 		Name:       "Pushing Docker Image to Registry: " + image,
 		Executable: "docker",
 		Arguments:  []string{"push", image},
-		Debug:      db.Debug,
+		Logger:     db.Logger,
 		Verbosity:  db.Verbosity,
 	}.RunWithRealtimeOutput()
 }

@@ -13,7 +13,6 @@ var listBaseImagesCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		var db = dockerbuild.DockerBuild{
-			Debug:                  commandLineFlags.debug,
 			Verbosity:              uint8(commandLineFlags.verbosity),
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
