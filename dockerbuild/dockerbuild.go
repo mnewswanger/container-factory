@@ -121,7 +121,19 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 
 	db.loadDockerImageHeirarchy()
 
+	db.Logger.Info("Building all images")
+
+	if forceRebuild {
+		db.Logger.Warn("Forcing a rebuild.  Caches will not be used.")
+	}
+	if !pushToRemote {
+		db.Logger.Warn("Push to remote is disabled")
+	}
+
 	var tempDir, _ = ioutil.TempDir(db.dockerfileDirectory, ".tmp-")
+	db.Logger.WithFields(logrus.Fields{
+		"path": tempDir,
+	}).Debug("Created temp directory")
 	db.createDynamicBuildFiles(tempDir + "/")
 
 	var waitGroup = sync.WaitGroup{}
@@ -153,7 +165,7 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 	var dockerfile = db.createDynamicDockerfile(tempDir+"/", deploymentFilename)
 
 	var imageName = db.DockerRegistryBasePath + "deployments/" + deploymentName + ":" + db.DeploymentTag
-	executil.Command{
+	var cmd = executil.Command{
 		Name:       "Build Deployment - " + imageName,
 		Executable: "docker",
 		Arguments: []string{
@@ -166,12 +178,14 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 			".",
 		},
 		WorkingDirectory: db.deploymentDirectory,
-		Logger:           db.Logger,
 		Verbosity:        db.Verbosity,
-	}.RunWithRealtimeOutput()
-
-	if pushToRemote {
-		db.pushImageToRegistry(imageName)
+	}
+	if err := cmd.Run(); err == nil {
+		if err := db.pushImageToRegistry(imageName); err != nil {
+			logrus.Error("Failed to push image to remote registry")
+		}
+	} else {
+		logrus.Error("Deployment failed to build")
 	}
 
 	db.fs.RemoveDirectory(tempDir, true)
@@ -225,41 +239,54 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 	if hasChildren {
 		for _, c := range children {
 			var imageName = db.fs.ForceTrailingSlash(db.DockerRegistryBasePath) + c.name
+			db.Logger.WithFields(logrus.Fields{
+				"docker_image": imageName,
+			}).Info("Building Image")
 
 			var arguments = []string{"build", "-t", imageName + ":" + db.Tag, "-f", c.filename}
 			if forceRebuild {
 				arguments = append(arguments, "--no-cache=true")
 			}
 			arguments = append(arguments, ".")
-			executil.Command{
+			var cmd = executil.Command{
 				Name:             "Building Docker Image: " + imageName + ":" + db.Tag,
 				Executable:       "docker",
 				Arguments:        arguments,
 				WorkingDirectory: db.dockerfileDirectory + "/..",
-				Logger:           db.Logger,
 				Verbosity:        db.Verbosity,
-			}.RunWithRealtimeOutput()
-			waitGroup.Add(1)
-			if pushToRemote {
-				go func(image string) {
-					db.pushImageToRegistry(image)
-					waitGroup.Done()
-				}(imageName + ":" + db.Tag)
-				waitGroup.Add(1)
 			}
+			if err := cmd.Run(); err == nil {
+				waitGroup.Add(1)
+				if pushToRemote {
+					go func(image string) {
+						var err = db.pushImageToRegistry(image)
+						if err != nil {
+							db.Logger.WithFields(logrus.Fields{
+								"docker_image": imageName,
+							}).Error(err)
+						}
+						waitGroup.Done()
+					}(imageName + ":" + db.Tag)
+					waitGroup.Add(1)
+				}
 
-			// Build all of the children
-			go func(parent string) {
-				defer waitGroup.Done()
-				db.buildImagesWithChildren(parent, forceRebuild, pushToRemote)
-			}(c.name)
+				// Build all of the children
+				go func(parent string) {
+					defer waitGroup.Done()
+					db.buildImagesWithChildren(parent, forceRebuild, pushToRemote)
+				}(c.name)
+			} else {
+				db.Logger.WithFields(logrus.Fields{
+					"docker_image": imageName,
+				}).Error("Image failed to build")
+			}
 		}
 	}
 	waitGroup.Wait()
 }
 
 func (db *DockerBuild) createDynamicBuildFiles(targetDirectory string) {
-	db.Logger.Info("Creating generated Dockerfiles")
+	db.Logger.Info("Generating Dockerfiles")
 	for _, dockerfile := range db.dockerfiles {
 		db.Logger.WithFields(logrus.Fields{
 			"name":     dockerfile.name,
@@ -405,12 +432,26 @@ func (db *DockerBuild) printFolderDeployments(subpath string) {
 	}
 }
 
-func (db *DockerBuild) pushImageToRegistry(image string) {
-	executil.Command{
+func (db *DockerBuild) pushImageToRegistry(image string) error {
+	var err error
+	var cmd = executil.Command{
 		Name:       "Pushing Docker Image to Registry: " + image,
 		Executable: "docker",
 		Arguments:  []string{"push", image},
-		Logger:     db.Logger,
 		Verbosity:  db.Verbosity,
-	}.RunWithRealtimeOutput()
+	}
+
+	for retries := 2; retries >= 0; retries-- {
+		err = cmd.Run()
+		if err == nil {
+			return err
+		} else {
+			db.Logger.WithFields(logrus.Fields{
+				"docker_image":      image,
+				"retries_remaining": retries,
+			}).Warn("Failed to push image to registry")
+		}
+	}
+
+	return err
 }
