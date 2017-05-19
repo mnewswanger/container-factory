@@ -2,13 +2,13 @@ package cmd
 
 type flags struct {
 	verbosity              int
-	debug                  bool
 	deploymentImageTag     string
 	dockerBaseDirectory    string
+	dockerRegistryBasePath string
 	forceRebuild           bool
 	imageTag               string
-	dockerRegistryBasePath string
 	localOnly              bool
+	outputFormat           string
 }
 
 var commandLineFlags = flags{}

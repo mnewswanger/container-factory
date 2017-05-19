@@ -30,13 +30,24 @@ type DockerBuild struct {
 
 	deploymentDirectory string
 	dockerfileDirectory string
-	dockerfiles         []*dockerfile
+	dockerfiles         map[string]*dockerfile
 	dockerfileHeirarchy map[string][]*dockerfile
 	fs                  *filesystem.Filesystem
-	imageBoolMap        map[string]bool
 	initialized         bool
 
 	fromSplitRegex *regexp.Regexp
+}
+
+// DockerBuildableImage provides a structure to export the docker image heirarchy
+type DockerBuildableImage struct {
+	Name     string                 `json:"image_name"`
+	Children []DockerBuildableImage `json:"children"`
+}
+
+// DockerOrphanedImage provides a structure to export docker images that are not buildable
+type DockerOrphanedImage struct {
+	Name       string `json:"image_name"`
+	ParentName string `json:"parent_image_name"`
 }
 
 type dockerfile struct {
@@ -111,6 +122,8 @@ func (db *DockerBuild) initialize() {
 		"tag":            db.Tag,
 		"deployment_tag": db.DeploymentTag,
 	}).Info("Set build tags")
+
+	db.dockerfiles = make(map[string]*dockerfile)
 
 	db.initialized = true
 }
@@ -191,34 +204,37 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 	db.fs.RemoveDirectory(tempDir, true)
 }
 
-// PrintBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
-func (db *DockerBuild) PrintBaseImageHeirarchy() {
+// GetBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
+// Returns buildable images and orphaned images respectively
+func (db *DockerBuild) GetBaseImageHeirarchy() ([]DockerBuildableImage, []DockerOrphanedImage) {
 	db.initialize()
 	db.loadDockerImageHeirarchy()
-	db.imageBoolMap = make(map[string]bool)
 
+	var allImages = make(map[string]bool)
 	for _, df := range db.dockerfiles {
-		db.imageBoolMap[df.name] = false
+		allImages[df.name] = false
 	}
 
-	println("Buildable Images:")
-	db.printChildImages("", 0)
-	println("")
+	var buildableImages = db.getChildImages("", allImages)
 
-	println("Orphaned Images:")
-	for dfname, printed := range db.imageBoolMap {
-		if !printed {
-			color.Red(dfname)
+	var orphanedImages = []DockerOrphanedImage{}
+	for imageName, buildable := range allImages {
+		if !buildable {
+			orphanedImages = append(orphanedImages, DockerOrphanedImage{
+				Name:       imageName,
+				ParentName: db.dockerfiles[imageName].parentName,
+			})
 		}
 	}
+
+	return buildableImages, orphanedImages
 }
 
-// PrintDeployments prints a list of configured deployments
-func (db *DockerBuild) PrintDeployments() {
+// GetDeployments prints a list of configured deployments
+func (db *DockerBuild) GetDeployments() []string {
 	db.initialize()
 
-	db.printFolderDeployments("")
-	println()
+	return db.getFolderDeployments("")
 }
 
 func (db *DockerBuild) buildDockerImageHeirarchy() {
@@ -258,6 +274,7 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 			if err := cmd.Run(); err == nil {
 				waitGroup.Add(1)
 				if pushToRemote {
+					waitGroup.Add(1)
 					go func(image string) {
 						var err = db.pushImageToRegistry(image)
 						if err != nil {
@@ -267,7 +284,6 @@ func (db *DockerBuild) buildImagesWithChildren(parent string, forceRebuild bool,
 						}
 						waitGroup.Done()
 					}(imageName + ":" + db.Tag)
-					waitGroup.Add(1)
 				}
 
 				// Build all of the children
@@ -329,6 +345,51 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 	return dynamicDockerfileFilename
 }
 
+func (db *DockerBuild) getChildImages(parent string, buildableImages map[string]bool) []DockerBuildableImage {
+	var imageHeirarchy = []DockerBuildableImage{}
+	children, hasChildren := db.dockerfileHeirarchy[parent]
+	if hasChildren {
+		var image DockerBuildableImage
+		for _, df := range children {
+			image = DockerBuildableImage{
+				Name:     df.name,
+				Children: db.getChildImages(df.name, buildableImages),
+			}
+			imageHeirarchy = append(imageHeirarchy, image)
+			buildableImages[df.name] = true
+		}
+	}
+	return imageHeirarchy
+}
+
+func (db *DockerBuild) getFolderDeployments(subpath string) []string {
+	var deployments = []string{}
+	var directoryContents []string
+	var err error
+	directoryContents, err = db.fs.GetDirectoryContents(db.deploymentDirectory + subpath)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, f := range directoryContents {
+		var relativeFile = subpath + f
+
+		// Skip hidden files
+		if string(f[0]) == "." {
+			continue
+		}
+
+		// Loop through children; iterate any subfolders
+		if db.fs.IsFile(db.deploymentDirectory + relativeFile) {
+			deployments = append(deployments, relativeFile)
+		} else {
+			deployments = append(deployments, db.getFolderDeployments(relativeFile+"/")...)
+		}
+	}
+
+	return deployments
+}
+
 func (db *DockerBuild) loadDockerImageHeirarchy() {
 	db.Logger.Info("Loading DockerFiles to build")
 	db.loadBaseImageDockerfiles("")
@@ -384,50 +445,8 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 					parentName:              parentName,
 					hasInternalDependencies: hasInternalDependencies,
 				}
-				db.dockerfiles = append(db.dockerfiles, &df)
+				db.dockerfiles[df.name] = &df
 			}
-		}
-	}
-}
-
-func (db *DockerBuild) printChildImages(parent string, level uint8) {
-	children, hasChildren := db.dockerfileHeirarchy[parent]
-	if hasChildren {
-		for _, df := range children {
-			if level > 0 {
-				print(color.GreenString("|--"))
-			}
-			for i := level; i > 1; i-- {
-				print(color.GreenString("---"))
-			}
-			color.Green(df.name)
-			db.printChildImages(df.name, level+1)
-			db.imageBoolMap[df.name] = true
-		}
-	}
-}
-
-func (db *DockerBuild) printFolderDeployments(subpath string) {
-	var directoryContents []string
-	var err error
-	directoryContents, err = db.fs.GetDirectoryContents(db.deploymentDirectory + subpath)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, f := range directoryContents {
-		var relativeFile = subpath + f
-
-		// Skip hidden files
-		if string(f[0]) == "." {
-			continue
-		}
-
-		// Loop through children; iterate any subfolders
-		if db.fs.IsFile(db.deploymentDirectory + relativeFile) {
-			println(relativeFile)
-		} else {
-			db.printFolderDeployments(relativeFile + "/")
 		}
 	}
 }
@@ -445,12 +464,12 @@ func (db *DockerBuild) pushImageToRegistry(image string) error {
 		err = cmd.Run()
 		if err == nil {
 			return err
-		} else {
-			db.Logger.WithFields(logrus.Fields{
-				"docker_image":      image,
-				"retries_remaining": retries,
-			}).Warn("Failed to push image to registry")
 		}
+
+		db.Logger.WithFields(logrus.Fields{
+			"docker_image":      image,
+			"retries_remaining": retries,
+		}).Warn("Failed to push image to registry")
 	}
 
 	return err

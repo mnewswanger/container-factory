@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"sort"
+
 	"github.com/spf13/cobra"
 
 	"gitlab.home.mikenewswanger.com/infrastructure/docker-automatic-build/dockerbuild"
@@ -17,7 +19,11 @@ var listDeploymentsCmd = &cobra.Command{
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
 		}
-		db.PrintDeployments()
+		var deployments = db.GetDeployments()
+		sort.Strings(deployments)
+		for _, d := range deployments {
+			println(d)
+		}
 	},
 }
 
