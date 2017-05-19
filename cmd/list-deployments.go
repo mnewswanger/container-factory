@@ -15,6 +15,7 @@ var listDeploymentsCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		var db = dockerbuild.DockerBuild{
+			Logger:                 logger,
 			Verbosity:              uint8(commandLineFlags.verbosity),
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,

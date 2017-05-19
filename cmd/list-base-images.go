@@ -17,6 +17,7 @@ var listBaseImagesCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		var db = dockerbuild.DockerBuild{
+			Logger:                 logger,
 			Verbosity:              uint8(commandLineFlags.verbosity),
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
@@ -33,7 +34,7 @@ var listBaseImagesCmd = &cobra.Command{
 			if err != nil {
 				panic("Failed to marshal json")
 			}
-			println(string(output))
+			color.White(string(output))
 		case "yaml":
 			var output, err = yaml.Marshal(map[string]interface{}{
 				"buildable_images": buildableImages,
@@ -42,16 +43,16 @@ var listBaseImagesCmd = &cobra.Command{
 			if err != nil {
 				panic("Failed to marshal json")
 			}
-			println(string(output))
+			color.White(string(output))
 		default:
-			println("Buildable Images:")
+			color.White("Buildable Images:")
 			for _, bi := range buildableImages {
 				color.Green(bi.Name)
 				printImageChildrenStdout(bi, "")
 			}
-			println("")
+			color.White("")
 
-			println("Orphaned Images:")
+			color.White("Orphaned Images:")
 			for _, oi := range orphanImages {
 				color.Red(oi.Name + " (Missing parent: " + oi.ParentName + ")")
 			}

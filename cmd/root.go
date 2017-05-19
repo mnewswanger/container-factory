@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -14,6 +15,26 @@ var RootCmd = &cobra.Command{
 	Use:   "docker-automatic-build",
 	Short: "Docker Automated Build Tool",
 	Long:  ``,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		switch commandLineFlags.verbosity {
+		case 0:
+			logger.Level = logrus.ErrorLevel
+			break
+		case 1:
+			logger.Level = logrus.WarnLevel
+			break
+		case 2:
+			fallthrough
+		case 3:
+			logger.Level = logrus.InfoLevel
+			break
+		default:
+			logger.Level = logrus.DebugLevel
+			break
+		}
+
+		logger.Debug("Pre-run complete")
+	},
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
