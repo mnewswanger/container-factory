@@ -2,7 +2,8 @@ package webserver
 
 import (
 	"github.com/gin-gonic/gin"
-	"gitlab.home.mikenewswanger.com/infrastructure/docker-automatic-build/dockerbuild"
+
+	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
 )
 
 func (ws *WebServer) addRoutes() {

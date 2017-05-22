@@ -6,7 +6,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"gitlab.home.mikenewswanger.com/golang/filesystem"
+	"go.mikenewswanger.com/utilities/filesystem"
 )
 
 // DockerBuild provides build services for docker images

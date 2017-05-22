@@ -3,10 +3,10 @@ package webserver
 import (
 	"strconv"
 
-	"gitlab.home.mikenewswanger.com/infrastructure/docker-automatic-build/dockerbuild"
-
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+
+    "go.mikenewswanger.com/docker-automatic-build/dockerbuild"
 )
 
 type WebServer struct {

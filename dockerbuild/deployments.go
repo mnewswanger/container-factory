@@ -6,7 +6,8 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/sirupsen/logrus"
-	"gitlab.home.mikenewswanger.com/golang/executil"
+
+	"go.mikenewswanger.com/utilities/executil"
 )
 
 // BuildDeployment builds a docker image for a code deployment

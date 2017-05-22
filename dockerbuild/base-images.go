@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"gitlab.home.mikenewswanger.com/golang/executil"
-
 	"github.com/sirupsen/logrus"
+
+    "go.mikenewswanger.com/utilities/executil"
 )
 
 // BuildBaseImages builds all docker images by heirarchy

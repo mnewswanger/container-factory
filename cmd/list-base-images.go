@@ -1,13 +1,13 @@
 package cmd
 
 import (
+    "encoding/json"
+
 	"github.com/fatih/color"
 	"github.com/ghodss/yaml"
 	"github.com/spf13/cobra"
 
-	"encoding/json"
-
-	"gitlab.home.mikenewswanger.com/infrastructure/docker-automatic-build/dockerbuild"
+	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
 )
 
 // listBaseImagesCmd represents the list command

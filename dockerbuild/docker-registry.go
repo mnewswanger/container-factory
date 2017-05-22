@@ -2,7 +2,8 @@ package dockerbuild
 
 import (
 	"github.com/sirupsen/logrus"
-	"gitlab.home.mikenewswanger.com/golang/executil"
+
+	"go.mikenewswanger.com/utilities/executil"
 )
 
 func (db *DockerBuild) pushImageToRegistry(image string) error {

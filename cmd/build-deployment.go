@@ -2,7 +2,8 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
-	"gitlab.home.mikenewswanger.com/infrastructure/docker-automatic-build/dockerbuild"
+
+	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
 )
 
 // buildDeploymentCmd represents the build command

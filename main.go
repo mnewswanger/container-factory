@@ -1,7 +1,7 @@
 package main
 
 import (
-	"gitlab.home.mikenewswanger.com/infrastructure/docker-automatic-build/cmd"
+	"go.mikenewswanger.com/docker-automatic-build/cmd"
 )
 
 func main() {
