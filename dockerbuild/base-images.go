@@ -9,7 +9,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-    "go.mikenewswanger.com/utilities/executil"
+	"go.mikenewswanger.com/utilities/executil"
+	"go.mikenewswanger.com/utilities/filesystem"
 )
 
 // BuildBaseImages builds all docker images by heirarchy
@@ -18,17 +19,17 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 
 	db.createBaseImageHeirarchy()
 
-	db.Logger.Info("Building all images")
+	logger.Info("Building all images")
 
 	if forceRebuild {
-		db.Logger.Warn("Forcing a rebuild.  Caches will not be used.")
+		logger.Warn("Forcing a rebuild.  Caches will not be used.")
 	}
 	if !pushToRemote {
-		db.Logger.Warn("Push to remote is disabled")
+		logger.Warn("Push to remote is disabled")
 	}
 
 	var tempDir, _ = ioutil.TempDir(db.dockerfileDirectory, ".tmp-")
-	db.Logger.WithFields(logrus.Fields{
+	logger.WithFields(logrus.Fields{
 		"path": tempDir,
 	}).Debug("Created temp directory")
 	db.createDynamicBuildFiles(tempDir + "/")
@@ -41,7 +42,7 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 	}()
 	waitGroup.Wait()
 
-	db.fs.RemoveDirectory(tempDir, true)
+	filesystem.RemoveDirectory(tempDir, true)
 }
 
 // GetBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
@@ -75,8 +76,8 @@ func (db *DockerBuild) buildBaseImagesWithChildren(parent string, forceRebuild b
 	children, hasChildren := db.dockerfileHeirarchy[parent]
 	if hasChildren {
 		for _, c := range children {
-			var imageName = db.fs.ForceTrailingSlash(db.DockerRegistryBasePath) + c.name
-			db.Logger.WithFields(logrus.Fields{
+			var imageName = filesystem.ForceTrailingSlash(db.DockerRegistryBasePath) + c.name
+			logger.WithFields(logrus.Fields{
 				"docker_image": imageName,
 			}).Info("Building Image")
 
@@ -90,7 +91,6 @@ func (db *DockerBuild) buildBaseImagesWithChildren(parent string, forceRebuild b
 				Executable:       "docker",
 				Arguments:        arguments,
 				WorkingDirectory: db.dockerfileDirectory + "/..",
-				Verbosity:        db.Verbosity,
 			}
 			if err := cmd.Run(); err == nil {
 				waitGroup.Add(1)
@@ -99,7 +99,7 @@ func (db *DockerBuild) buildBaseImagesWithChildren(parent string, forceRebuild b
 					go func(image string) {
 						var err = db.pushImageToRegistry(image)
 						if err != nil {
-							db.Logger.WithFields(logrus.Fields{
+							logger.WithFields(logrus.Fields{
 								"docker_image": imageName,
 							}).Error(err)
 						}
@@ -113,7 +113,7 @@ func (db *DockerBuild) buildBaseImagesWithChildren(parent string, forceRebuild b
 					db.buildBaseImagesWithChildren(parent, forceRebuild, pushToRemote)
 				}(c.name)
 			} else {
-				db.Logger.WithFields(logrus.Fields{
+				logger.WithFields(logrus.Fields{
 					"docker_image": imageName,
 				}).Error("Image failed to build")
 			}
@@ -123,7 +123,7 @@ func (db *DockerBuild) buildBaseImagesWithChildren(parent string, forceRebuild b
 }
 
 func (db *DockerBuild) buildDockerImageHeirarchy() {
-	db.Logger.Info("Building Docker image heirarchy")
+	logger.Info("Building Docker image heirarchy")
 	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
 	for _, df := range db.dockerfiles {
 		if df.hasInternalDependencies {
@@ -135,15 +135,15 @@ func (db *DockerBuild) buildDockerImageHeirarchy() {
 }
 
 func (db *DockerBuild) createBaseImageHeirarchy() {
-	db.Logger.Info("Loading DockerFiles to build")
+	logger.Info("Loading DockerFiles to build")
 	db.loadBaseImageDockerfiles("")
 	db.buildDockerImageHeirarchy()
 }
 
 func (db *DockerBuild) createDynamicBuildFiles(targetDirectory string) {
-	db.Logger.Info("Generating Dockerfiles")
+	logger.Info("Generating Dockerfiles")
 	for _, dockerfile := range db.dockerfiles {
-		db.Logger.WithFields(logrus.Fields{
+		logger.WithFields(logrus.Fields{
 			"name":     dockerfile.name,
 			"filename": dockerfile.filename,
 		}).Debug("Compiling Dockerfile")
@@ -169,14 +169,14 @@ func (db *DockerBuild) getChildImages(parent string, buildableImages map[string]
 }
 
 func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
-	db.Logger.WithFields(logrus.Fields{
+	logger.WithFields(logrus.Fields{
 		"namespace": "/" + subpath,
 	}).Debug("Processing DockerFiles")
 
 	var directoryContents []string
 	var err error
 
-	directoryContents, err = db.fs.GetDirectoryContents(db.dockerfileDirectory + subpath)
+	directoryContents, err = filesystem.GetDirectoryContents(db.dockerfileDirectory + subpath)
 	if err != nil {
 		panic(err)
 	}
@@ -189,7 +189,7 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 		}
 
 		// Loop through children; iterate any subfolders
-		if db.fs.IsDirectory(db.dockerfileDirectory + relativeFile) {
+		if filesystem.IsDirectory(db.dockerfileDirectory + relativeFile) {
 			db.loadBaseImageDockerfiles(relativeFile + "/")
 		} else {
 			var role = relativeFile

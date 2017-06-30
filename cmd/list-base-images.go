@@ -1,13 +1,14 @@
 package cmd
 
 import (
-    "encoding/json"
+	"encoding/json"
 
 	"github.com/fatih/color"
 	"github.com/ghodss/yaml"
 	"github.com/spf13/cobra"
 
 	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
+	"go.mikenewswanger.com/docker-automatic-build/webserver"
 )
 
 // listBaseImagesCmd represents the list command
@@ -16,9 +17,9 @@ var listBaseImagesCmd = &cobra.Command{
 	Short: "List Dockerfile Heirarchy",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
+		webserver.SetLogger(logger)
+		webserver.SetVerbosity(uint8(commandLineFlags.verbosity))
 		var db = dockerbuild.DockerBuild{
-			Logger:                 logger,
-			Verbosity:              uint8(commandLineFlags.verbosity),
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
 		}

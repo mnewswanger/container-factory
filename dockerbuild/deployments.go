@@ -8,6 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"go.mikenewswanger.com/utilities/executil"
+	"go.mikenewswanger.com/utilities/filesystem"
 )
 
 // BuildDeployment builds a docker image for a code deployment
@@ -15,12 +16,12 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 	db.initialize()
 
 	if db.DockerRegistryBasePath == "" {
-		db.Logger.Fatal("Registry Base Path must be specified")
+		logger.Fatal("Registry Base Path must be specified")
 		os.Exit(100)
 	}
 
 	var deploymentFilename = db.deploymentDirectory + deploymentName
-	if !db.fs.IsFile(deploymentFilename) {
+	if !filesystem.IsFile(deploymentFilename) {
 		color.Red("Deployment does not exist: " + deploymentName)
 		os.Exit(101)
 	}
@@ -41,7 +42,6 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 			".",
 		},
 		WorkingDirectory: db.deploymentDirectory,
-		Verbosity:        db.Verbosity,
 	}
 	if err := cmd.Run(); err == nil {
 		if err := db.pushImageToRegistry(imageName); err != nil {
@@ -51,7 +51,7 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 		logrus.Error("Deployment failed to build")
 	}
 
-	db.fs.RemoveDirectory(tempDir, true)
+	filesystem.RemoveDirectory(tempDir, true)
 }
 
 // GetDeployments prints a list of configured deployments
@@ -65,7 +65,7 @@ func (db *DockerBuild) getFolderDeployments(subpath string) []string {
 	var deployments = []string{}
 	var directoryContents []string
 	var err error
-	directoryContents, err = db.fs.GetDirectoryContents(db.deploymentDirectory + subpath)
+	directoryContents, err = filesystem.GetDirectoryContents(db.deploymentDirectory + subpath)
 	if err != nil {
 		panic(err)
 	}
@@ -79,7 +79,7 @@ func (db *DockerBuild) getFolderDeployments(subpath string) []string {
 		}
 
 		// Loop through children; iterate any subfolders
-		if db.fs.IsFile(db.deploymentDirectory + relativeFile) {
+		if filesystem.IsFile(db.deploymentDirectory + relativeFile) {
 			deployments = append(deployments, relativeFile)
 		} else {
 			deployments = append(deployments, db.getFolderDeployments(relativeFile+"/")...)

@@ -15,14 +15,12 @@ type DockerBuild struct {
 	DockerBaseDirectory    string
 	DockerRegistryBasePath string
 	DeploymentTag          string
-	Logger                 *logrus.Logger
 	Tag                    string
 
 	deploymentDirectory string
 	dockerfileDirectory string
 	dockerfiles         map[string]*dockerfile
 	dockerfileHeirarchy map[string][]*dockerfile
-	fs                  *filesystem.Filesystem
 	initialized         bool
 
 	fromSplitRegex *regexp.Regexp
@@ -53,49 +51,25 @@ func (db *DockerBuild) initialize() {
 		return
 	}
 
-	if db.Logger == nil {
-		// Set up the logger
-		db.Logger = logrus.New()
-		switch db.Verbosity {
-		case 0:
-			db.Logger.Level = logrus.ErrorLevel
-			break
-		case 1:
-			db.Logger.Level = logrus.WarnLevel
-			break
-		case 2:
-			fallthrough
-		case 3:
-			db.Logger.Level = logrus.InfoLevel
-			break
-		default:
-			db.Logger.Level = logrus.DebugLevel
-			break
-		}
-	}
-
-	db.Logger.Info("Initializing DockerBuild System")
+	logger.Info("Initializing DockerBuild System")
 
 	if db.DockerRegistryBasePath == "" {
-		db.Logger.Fatal("Registry Base Path must be specified")
+		logger.Fatal("Registry Base Path must be specified")
 	}
 
 	// matches[1] => image; matches[2] w/ length > 0 => internal; matches[3] => role
 	db.fromSplitRegex, _ = regexp.Compile("FROM\\s+(({{\\s+local\\s+}}/)?([\\w\\-\\_\\/\\:\\.\\{\\}]+))([\\s\\n])?")
 
-	db.Logger.Debug("Initializing Filesystem utility")
-	db.fs = &filesystem.Filesystem{
-		Verbosity: db.Verbosity,
-		Logger:    db.Logger,
-	}
+	logger.Debug("Initializing Filesystem utility")
+	filesystem.SetLogger(logger)
 
 	// Determine environment paths
-	db.dockerfileDirectory, _ = db.fs.BuildAbsolutePathFromHome(db.DockerBaseDirectory + "/dockerfiles/")
-	db.Logger.WithFields(logrus.Fields{
+	db.dockerfileDirectory, _ = filesystem.BuildAbsolutePathFromHome(db.DockerBaseDirectory + "/dockerfiles/")
+	logger.WithFields(logrus.Fields{
 		"path": db.dockerfileDirectory,
 	}).Debug("Set dockerfile directory")
-	db.deploymentDirectory, _ = db.fs.BuildAbsolutePathFromHome(db.DockerBaseDirectory + "/deployments/")
-	db.Logger.WithFields(logrus.Fields{
+	db.deploymentDirectory, _ = filesystem.BuildAbsolutePathFromHome(db.DockerBaseDirectory + "/deployments/")
+	logger.WithFields(logrus.Fields{
 		"path": db.deploymentDirectory,
 	}).Debug("Set deployment directory")
 
@@ -118,7 +92,7 @@ func (db *DockerBuild) setTags() {
 	if db.DeploymentTag == "" {
 		db.DeploymentTag = db.Tag
 	}
-	db.Logger.WithFields(logrus.Fields{
+	logger.WithFields(logrus.Fields{
 		"tag":            db.Tag,
 		"deployment_tag": db.DeploymentTag,
 	}).Info("Set build tags")

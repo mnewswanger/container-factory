@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+
+	"go.mikenewswanger.com/utilities/filesystem"
 )
 
 func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFilename string) string {
@@ -15,7 +17,7 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 	h.Write([]byte(sourceFilename))
 	var dynamicDockerfileFilename = targetDirectory + hex.EncodeToString(h.Sum(nil))
 
-	fileContents, err = db.fs.LoadFileIfExists(sourceFilename)
+	fileContents, err = filesystem.LoadFileIfExists(sourceFilename)
 	if err != nil {
 		panic(err)
 	}
@@ -24,12 +26,12 @@ func (db *DockerBuild) createDynamicDockerfile(targetDirectory string, sourceFil
 
 	for _, match := range matches {
 		if len(match[2]) > 0 {
-			fileContents = strings.Replace(fileContents, match[1], db.fs.ForceTrailingSlash(db.DockerRegistryBasePath)+match[3]+":"+db.Tag, 1)
+			fileContents = strings.Replace(fileContents, match[1], filesystem.ForceTrailingSlash(db.DockerRegistryBasePath)+match[3]+":"+db.Tag, 1)
 		}
 	}
 
 	// Write out the new file with the tagged base image
-	if e := db.fs.WriteFile(
+	if e := filesystem.WriteFile(
 		dynamicDockerfileFilename,
 		[]byte(fileContents),
 		0644); e != nil {

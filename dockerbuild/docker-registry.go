@@ -12,7 +12,6 @@ func (db *DockerBuild) pushImageToRegistry(image string) error {
 		Name:       "Pushing Docker Image to Registry: " + image,
 		Executable: "docker",
 		Arguments:  []string{"push", image},
-		Verbosity:  db.Verbosity,
 	}
 
 	for retries := 2; retries >= 0; retries-- {
@@ -21,7 +20,7 @@ func (db *DockerBuild) pushImageToRegistry(image string) error {
 			return err
 		}
 
-		db.Logger.WithFields(logrus.Fields{
+		logger.WithFields(logrus.Fields{
 			"docker_image":      image,
 			"retries_remaining": retries,
 		}).Warn("Failed to push image to registry")

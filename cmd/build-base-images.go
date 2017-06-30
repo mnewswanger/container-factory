@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
+	"go.mikenewswanger.com/docker-automatic-build/webserver"
 )
 
 // buildBaseImagesCmd represents the build command
@@ -12,9 +13,9 @@ var buildBaseImagesCmd = &cobra.Command{
 	Short: "Build All Docker Images",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
+		webserver.SetLogger(logger)
+		webserver.SetVerbosity(uint8(commandLineFlags.verbosity))
 		var db = dockerbuild.DockerBuild{
-			Logger:                 logger,
-			Verbosity:              uint8(commandLineFlags.verbosity),
 			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
 			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
 			Tag: commandLineFlags.imageTag,
