@@ -2,9 +2,7 @@ package dockerbuild
 
 import (
 	"io/ioutil"
-	"os"
 
-	"github.com/fatih/color"
 	"github.com/sirupsen/logrus"
 
 	"go.mikenewswanger.com/utilities/executil"
@@ -12,23 +10,23 @@ import (
 )
 
 // BuildDeployment builds a docker image for a code deployment
-func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool) {
-	db.initialize()
-
-	if db.DockerRegistryBasePath == "" {
-		logger.Fatal("Registry Base Path must be specified")
-		os.Exit(100)
+func BuildDeployment(registryBasePath string, deploymentName string, buildTargetTag string, deploymentTag string, pushToRemote bool) {
+	if registryBasePath == "" {
+		logger.Panic("Registry Base Path must be specified")
+	}
+	buildTargetTag = getDefaultTag(buildTargetTag)
+	if deploymentTag == "" {
+		deploymentTag = buildTargetTag
 	}
 
-	var deploymentFilename = db.deploymentDirectory + deploymentName
+	deploymentFilename := deploymentDirectory + deploymentName
 	if !filesystem.IsFile(deploymentFilename) {
-		color.Red("Deployment does not exist: " + deploymentName)
-		os.Exit(101)
+		logger.Panic("Deployment does not exist: " + deploymentName)
 	}
-	var tempDir, _ = ioutil.TempDir(db.deploymentDirectory, ".tmp-")
-	var dockerfile = db.createDynamicDockerfile(tempDir+"/", deploymentFilename)
+	tempDir, _ := ioutil.TempDir(deploymentDirectory, ".tmp-")
+	dockerfile := createDynamicDockerfile(tempDir+"/", deploymentFilename, registryBasePath, buildTargetTag)
 
-	var imageName = db.DockerRegistryBasePath + "/deployments/" + deploymentName + ":" + db.DeploymentTag
+	var imageName = registryBasePath + "/deployments/" + deploymentName + ":" + deploymentTag
 	var cmd = executil.Command{
 		Name:       "Build Deployment - " + imageName,
 		Executable: "docker",
@@ -41,10 +39,10 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 			dockerfile,
 			".",
 		},
-		WorkingDirectory: db.deploymentDirectory,
+		WorkingDirectory: dockerBaseDirectory,
 	}
 	if err := cmd.Run(); err == nil {
-		if err := db.pushImageToRegistry(imageName); err != nil {
+		if err := pushImageToRegistry(imageName); err != nil {
 			logrus.Error("Failed to push image to remote registry")
 		}
 	} else {
@@ -55,23 +53,19 @@ func (db *DockerBuild) BuildDeployment(deploymentName string, pushToRemote bool)
 }
 
 // GetDeployments prints a list of configured deployments
-func (db *DockerBuild) GetDeployments() []string {
-	db.initialize()
-
-	return db.getFolderDeployments("")
+func GetDeployments() []string {
+	return deployments
 }
 
-func (db *DockerBuild) getFolderDeployments(subpath string) []string {
-	var deployments = []string{}
-	var directoryContents []string
-	var err error
-	directoryContents, err = filesystem.GetDirectoryContents(db.deploymentDirectory + subpath)
+func getFolderDeployments(subpath string) []string {
+	d := []string{}
+	directoryContents, err := filesystem.GetDirectoryContents(deploymentDirectory + subpath)
 	if err != nil {
-		panic(err)
+		logger.Panic(err)
 	}
 
 	for _, f := range directoryContents {
-		var relativeFile = subpath + f
+		relativeFile := subpath + f
 
 		// Skip hidden files
 		if string(f[0]) == "." {
@@ -79,12 +73,12 @@ func (db *DockerBuild) getFolderDeployments(subpath string) []string {
 		}
 
 		// Loop through children; iterate any subfolders
-		if filesystem.IsFile(db.deploymentDirectory + relativeFile) {
-			deployments = append(deployments, relativeFile)
+		if filesystem.IsFile(deploymentDirectory + relativeFile) {
+			d = append(d, relativeFile)
 		} else {
-			deployments = append(deployments, db.getFolderDeployments(relativeFile+"/")...)
+			d = append(d, getFolderDeployments(relativeFile+"/")...)
 		}
 	}
 
-	return deployments
+	return d
 }

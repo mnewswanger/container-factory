@@ -6,7 +6,7 @@ import (
 	"go.mikenewswanger.com/utilities/executil"
 )
 
-func (db *DockerBuild) pushImageToRegistry(image string) error {
+func pushImageToRegistry(image string) error {
 	var err error
 	var cmd = executil.Command{
 		Name:       "Pushing Docker Image to Registry: " + image,

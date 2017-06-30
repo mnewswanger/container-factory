@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
-	"go.mikenewswanger.com/docker-automatic-build/webserver"
 )
 
 // listBaseImagesCmd represents the list command
@@ -17,18 +16,15 @@ var listBaseImagesCmd = &cobra.Command{
 	Short: "List Dockerfile Heirarchy",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		webserver.SetLogger(logger)
-		webserver.SetVerbosity(uint8(commandLineFlags.verbosity))
-		var db = dockerbuild.DockerBuild{
-			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
-			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
-		}
+		dockerbuild.SetLogger(logger)
+		dockerbuild.SetVerbosity(uint8(commandLineFlags.verbosity))
+		dockerbuild.SetDockerBaseDirectory(commandLineFlags.dockerBaseDirectory)
 
-		var buildableImages, orphanImages = db.GetBaseImageHeirarchy()
+		buildableImages, orphanImages := dockerbuild.GetBaseImageHeirarchy()
 
 		switch commandLineFlags.outputFormat {
 		case "json":
-			var output, err = json.Marshal(map[string]interface{}{
+			output, err := json.Marshal(map[string]interface{}{
 				"buildable_images": buildableImages,
 				"orphaned_images":  orphanImages,
 			})
@@ -37,7 +33,7 @@ var listBaseImagesCmd = &cobra.Command{
 			}
 			color.White(string(output))
 		case "yaml":
-			var output, err = yaml.Marshal(map[string]interface{}{
+			output, err := yaml.Marshal(map[string]interface{}{
 				"buildable_images": buildableImages,
 				"orphaned_images":  orphanImages,
 			})

@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
-	"go.mikenewswanger.com/docker-automatic-build/webserver"
 )
 
 // buildBaseImagesCmd represents the build command
@@ -13,14 +12,15 @@ var buildBaseImagesCmd = &cobra.Command{
 	Short: "Build All Docker Images",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		webserver.SetLogger(logger)
-		webserver.SetVerbosity(uint8(commandLineFlags.verbosity))
-		var db = dockerbuild.DockerBuild{
-			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
-			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
-			Tag: commandLineFlags.imageTag,
-		}
-		db.BuildBaseImages(commandLineFlags.forceRebuild, !commandLineFlags.localOnly)
+		dockerbuild.SetLogger(logger)
+		dockerbuild.SetVerbosity(uint8(commandLineFlags.verbosity))
+		dockerbuild.SetDockerBaseDirectory(commandLineFlags.dockerBaseDirectory)
+		dockerbuild.BuildBaseImages(
+			commandLineFlags.dockerRegistryBasePath,
+			commandLineFlags.imageTag,
+			commandLineFlags.forceRebuild,
+			!commandLineFlags.localOnly,
+		)
 	},
 }
 

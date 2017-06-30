@@ -6,35 +6,38 @@ import (
 	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
 )
 
-func (ws *WebServer) addRoutes() {
-	ws.ginEngine.GET("/base-images/build", func(c *gin.Context) { ws.buildBaseImages(c) })
-	ws.ginEngine.GET("/base-images/list", func(c *gin.Context) { ws.renderBaseImagesList(c) })
-	ws.ginEngine.GET("/deployments/build", func(c *gin.Context) { ws.buildDeployment(c) })
-	ws.ginEngine.GET("/deployments/list", func(c *gin.Context) { ws.renderDeploymentsList(c) })
+func addRoutes() {
+	ginEngine.GET("/api/v1/base-images/build", func(c *gin.Context) { buildBaseImages(c) })
+	ginEngine.GET("/api/v1/base-images/list", func(c *gin.Context) { renderBaseImagesList(c) })
+	ginEngine.GET("/api/v1/deployments/build", func(c *gin.Context) { buildDeployment(c) })
+	ginEngine.GET("/api/v1/deployments/list", func(c *gin.Context) { renderDeploymentsList(c) })
 }
 
-func (ws *WebServer) buildBaseImages(c *gin.Context) {
-	var db = ws.newDockerBuild()
-	db.Tag = c.Query("tag")
+func buildBaseImages(c *gin.Context) {
+	tag := c.Query("tag")
+	if tag == "" {
+		c.String(400, "Tag is required for Web API calls")
+		return
+	}
 	c.String(200, "Build process started")
-	go func(db *dockerbuild.DockerBuild, forceRebuild bool) {
-		db.BuildBaseImages(forceRebuild, true)
-	}(&db, c.Query("force-rebuild") != "")
+	go func(tag string, forceRebuild bool) {
+		dockerbuild.BuildBaseImages(registryBasePath, tag, forceRebuild, true)
+	}(tag, c.Query("force-rebuild") != "")
 }
 
-func (ws *WebServer) buildDeployment(c *gin.Context) {
-	var db = ws.newDockerBuild()
-	db.Tag = c.Query("tag")
-	db.DeploymentTag = c.Query("deployment-tag")
+func buildDeployment(c *gin.Context) {
+	tag := c.Query("tag")
+	if tag == "" {
+		c.String(400, "Tag is required for Web API calls")
+	}
 	c.String(200, "Build process started")
-	go func(db *dockerbuild.DockerBuild, deploymentName string) {
-		db.BuildDeployment(deploymentName, true)
-	}(&db, c.Query("name"))
+	go func(deploymentName string, tag string, deploymentTag string) {
+		dockerbuild.BuildDeployment(registryBasePath, deploymentName, tag, deploymentTag, true)
+	}(c.Query("name"), tag, c.Query("deployment-tag"))
 }
 
-func (ws *WebServer) renderBaseImagesList(c *gin.Context) {
-	var db = ws.newDockerBuild()
-	var buildableImages, orphanedImages = db.GetBaseImageHeirarchy()
+func renderBaseImagesList(c *gin.Context) {
+	buildableImages, orphanedImages := dockerbuild.GetBaseImageHeirarchy()
 
 	switch c.Query("format") {
 	case "json":
@@ -53,7 +56,7 @@ func (ws *WebServer) renderBaseImagesList(c *gin.Context) {
 			output += "  " + bi.Name + "\n" + getImageChildrenString(bi, "  ")
 		}
 		output += "\n"
-		output += "Orphaned Images\n"
+		output += "Orphaned Images:\n"
 		for _, oi := range orphanedImages {
 			output += oi.Name + " (requested from " + oi.ParentName + ")\n"
 		}
@@ -61,9 +64,8 @@ func (ws *WebServer) renderBaseImagesList(c *gin.Context) {
 	}
 }
 
-func (ws *WebServer) renderDeploymentsList(c *gin.Context) {
-	var db = ws.newDockerBuild()
-	var deployments = db.GetDeployments()
+func renderDeploymentsList(c *gin.Context) {
+	deployments := dockerbuild.GetDeployments()
 
 	switch c.Query("format") {
 	case "json":
@@ -75,7 +77,7 @@ func (ws *WebServer) renderDeploymentsList(c *gin.Context) {
 			"deployments": deployments,
 		})
 	default:
-		var output string
+		output := ""
 		for _, d := range deployments {
 			output += d + "\n"
 		}

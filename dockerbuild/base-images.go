@@ -14,12 +14,12 @@ import (
 )
 
 // BuildBaseImages builds all docker images by heirarchy
-func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
-	db.initialize()
+func BuildBaseImages(dockerRegistryBasePath string, tag string, forceRebuild bool, pushToRemote bool) {
+	tag = getDefaultTag(tag)
 
-	db.createBaseImageHeirarchy()
-
-	logger.Info("Building all images")
+	logger.WithFields(logrus.Fields{
+		"tag": tag,
+	}).Info("Building all images")
 
 	if forceRebuild {
 		logger.Warn("Forcing a rebuild.  Caches will not be used.")
@@ -28,89 +28,67 @@ func (db *DockerBuild) BuildBaseImages(forceRebuild bool, pushToRemote bool) {
 		logger.Warn("Push to remote is disabled")
 	}
 
-	var tempDir, _ = ioutil.TempDir(db.dockerfileDirectory, ".tmp-")
+	tempDir, _ := ioutil.TempDir(dockerfileDirectory, ".tmp-")
+	defer filesystem.RemoveDirectory(tempDir, true)
 	logger.WithFields(logrus.Fields{
 		"path": tempDir,
 	}).Debug("Created temp directory")
-	db.createDynamicBuildFiles(tempDir + "/")
 
 	var waitGroup = sync.WaitGroup{}
 	waitGroup.Add(1)
 	go func() {
 		defer waitGroup.Done()
-		db.buildBaseImagesWithChildren("", forceRebuild, pushToRemote)
+		buildBaseImagesWithChildren(tempDir, dockerRegistryBasePath, tag, "", forceRebuild, pushToRemote)
 	}()
 	waitGroup.Wait()
-
-	filesystem.RemoveDirectory(tempDir, true)
 }
 
 // GetBaseImageHeirarchy prints the heirachy of dockerfiles to be built to stdout
 // Returns buildable images and orphaned images respectively
-func (db *DockerBuild) GetBaseImageHeirarchy() ([]DockerBuildableImage, []DockerOrphanedImage) {
-	db.initialize()
-	db.createBaseImageHeirarchy()
-
-	var allImages = make(map[string]bool)
-	for _, df := range db.dockerfiles {
-		allImages[df.name] = false
-	}
-
-	var buildableImages = db.getChildImages("", allImages)
-
-	var orphanedImages = []DockerOrphanedImage{}
-	for imageName, buildable := range allImages {
-		if !buildable {
-			orphanedImages = append(orphanedImages, DockerOrphanedImage{
-				Name:       imageName,
-				ParentName: db.dockerfiles[imageName].parentName,
-			})
-		}
-	}
-
+func GetBaseImageHeirarchy() ([]DockerBuildableImage, []DockerOrphanedImage) {
 	return buildableImages, orphanedImages
 }
 
-func (db *DockerBuild) buildBaseImagesWithChildren(parent string, forceRebuild bool, pushToRemote bool) {
+func buildBaseImagesWithChildren(tempDir string, registryBasePath string, tag string, parent string, forceRebuild bool, pushToRemote bool) {
 	var waitGroup = sync.WaitGroup{}
-	children, hasChildren := db.dockerfileHeirarchy[parent]
+	children, hasChildren := dockerfileHeirarchy[parent]
 	if hasChildren {
 		for _, c := range children {
-			var imageName = filesystem.ForceTrailingSlash(db.DockerRegistryBasePath) + c.name
+			var imageName = filesystem.ForceTrailingSlash(registryBasePath) + c.name
 			logger.WithFields(logrus.Fields{
 				"docker_image": imageName,
 			}).Info("Building Image")
 
-			var arguments = []string{"build", "-t", imageName + ":" + db.Tag, "-f", c.filename}
+			arguments := []string{"build", "-t", imageName + ":" + tag, "-f", createDynamicDockerfile(tempDir, c.filename, registryBasePath, tag)}
 			if forceRebuild {
 				arguments = append(arguments, "--no-cache=true")
 			}
 			arguments = append(arguments, ".")
 			var cmd = executil.Command{
-				Name:             "Building Docker Image: " + imageName + ":" + db.Tag,
+				Name:             "Building Docker Image: " + imageName + ":" + tag,
 				Executable:       "docker",
 				Arguments:        arguments,
-				WorkingDirectory: db.dockerfileDirectory + "/..",
+				WorkingDirectory: dockerBaseDirectory,
 			}
 			if err := cmd.Run(); err == nil {
 				waitGroup.Add(1)
 				if pushToRemote {
 					waitGroup.Add(1)
 					go func(image string) {
-						var err = db.pushImageToRegistry(image)
+						err := pushImageToRegistry(image)
 						if err != nil {
 							logger.WithFields(logrus.Fields{
 								"docker_image": imageName,
 							}).Error(err)
 						}
 						waitGroup.Done()
-					}(imageName + ":" + db.Tag)
+					}(imageName + ":" + tag)
 				}
 
 				// Build all of the children
 				go func(parent string) {
 					defer waitGroup.Done()
-					db.buildBaseImagesWithChildren(parent, forceRebuild, pushToRemote)
+					buildBaseImagesWithChildren(tempDir, registryBasePath, tag, parent, forceRebuild, pushToRemote)
 				}(c.name)
 			} else {
 				logger.WithFields(logrus.Fields{
@@ -122,63 +100,59 @@ func (db *DockerBuild) buildBaseImagesWithChildren(parent string, forceRebuild b
 	waitGroup.Wait()
 }
 
-func (db *DockerBuild) buildDockerImageHeirarchy() {
+func buildDockerImageHeirarchy() (map[string][]*dockerfile, []DockerBuildableImage, []DockerOrphanedImage) {
 	logger.Info("Building Docker image heirarchy")
-	db.dockerfileHeirarchy = make(map[string][]*dockerfile)
-	for _, df := range db.dockerfiles {
+	dfh := map[string][]*dockerfile{}
+	allImages := loadBaseImageDockerfiles("")
+	for _, df := range allImages {
 		if df.hasInternalDependencies {
-			db.dockerfileHeirarchy[df.parentName] = append(db.dockerfileHeirarchy[df.parentName], df)
+			dfh[df.parentName] = append(dfh[df.parentName], df)
 		} else {
-			db.dockerfileHeirarchy[""] = append(db.dockerfileHeirarchy[""], df)
+			dfh[""] = append(dfh[""], df)
 		}
 	}
-}
 
-func (db *DockerBuild) createBaseImageHeirarchy() {
-	logger.Info("Loading DockerFiles to build")
-	db.loadBaseImageDockerfiles("")
-	db.buildDockerImageHeirarchy()
-}
-
-func (db *DockerBuild) createDynamicBuildFiles(targetDirectory string) {
-	logger.Info("Generating Dockerfiles")
-	for _, dockerfile := range db.dockerfiles {
-		logger.WithFields(logrus.Fields{
-			"name":     dockerfile.name,
-			"filename": dockerfile.filename,
-		}).Debug("Compiling Dockerfile")
-		dockerfile.filename = db.createDynamicDockerfile(targetDirectory, dockerfile.filename)
+	// Loop buildable to determine all images that are buildable
+	bi := getChildImages(dfh, "")
+	oi := []DockerOrphanedImage{}
+	for _, df := range allImages {
+		if !df.isBuildable {
+			oi = append(oi, DockerOrphanedImage{
+				Name:       df.name,
+				ParentName: df.parentName,
+			})
+		}
 	}
+
+	return dfh, bi, oi
 }
 
-func (db *DockerBuild) getChildImages(parent string, buildableImages map[string]bool) []DockerBuildableImage {
-	var imageHeirarchy = []DockerBuildableImage{}
-	children, hasChildren := db.dockerfileHeirarchy[parent]
+func getChildImages(dfh map[string][]*dockerfile, parent string) []DockerBuildableImage {
+	imageHeirarchy := []DockerBuildableImage{}
+	children, hasChildren := dfh[parent]
 	if hasChildren {
-		var image DockerBuildableImage
 		for _, df := range children {
-			image = DockerBuildableImage{
+			df.isBuildable = true
+			imageHeirarchy = append(imageHeirarchy, DockerBuildableImage{
 				Name:     df.name,
-				Children: db.getChildImages(df.name, buildableImages),
-			}
-			imageHeirarchy = append(imageHeirarchy, image)
-			buildableImages[df.name] = true
+				Children: getChildImages(dfh, df.name),
+			})
 		}
 	}
 	return imageHeirarchy
 }
 
-func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
+// loadBaseImageDockerfiles loads base image dockerfiles from a directory recursively
+func loadBaseImageDockerfiles(subpath string) map[string]*dockerfile {
 	logger.WithFields(logrus.Fields{
 		"namespace": "/" + subpath,
 	}).Debug("Processing DockerFiles")
 
-	var directoryContents []string
-	var err error
+	dockerfiles := map[string]*dockerfile{}
 
-	directoryContents, err = filesystem.GetDirectoryContents(db.dockerfileDirectory + subpath)
+	directoryContents, err := filesystem.GetDirectoryContents(dockerfileDirectory + subpath)
 	if err != nil {
-		panic(err)
+		logger.Panic(err)
 	}
 	for _, f := range directoryContents {
 		var relativeFile = subpath + f
@@ -189,11 +163,13 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 		}
 
 		// Loop through children; iterate any subfolders
-		if filesystem.IsDirectory(db.dockerfileDirectory + relativeFile) {
-			db.loadBaseImageDockerfiles(relativeFile + "/")
+		if filesystem.IsDirectory(dockerfileDirectory + relativeFile) {
+			for n, df := range loadBaseImageDockerfiles(relativeFile + "/") {
+				dockerfiles[n] = df
+			}
 		} else {
-			var role = relativeFile
-			var fileName = db.dockerfileDirectory + role
+			role := relativeFile
+			fileName := dockerfileDirectory + role
 			firstLine, err := ioutil.ReadFile(fileName)
 			if err != nil {
 				panic(err)
@@ -202,10 +178,10 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 			reader := bufio.NewReader(readbuffer)
 			line, _, err := reader.ReadLine()
 			if err == nil {
-				matches := db.fromSplitRegex.FindStringSubmatch(string(line))
+				matches := fromSplitRegex.FindStringSubmatch(string(line))
 
-				var parentName = ""
-				var hasInternalDependencies = len(matches[2]) > 0
+				parentName := ""
+				hasInternalDependencies := len(matches[2]) > 0
 
 				if hasInternalDependencies {
 					parentName = strings.Replace(matches[1], matches[2], "", 1)
@@ -217,8 +193,9 @@ func (db *DockerBuild) loadBaseImageDockerfiles(subpath string) {
 					parentName:              parentName,
 					hasInternalDependencies: hasInternalDependencies,
 				}
-				db.dockerfiles[df.name] = &df
+				dockerfiles[df.name] = &df
 			}
 		}
 	}
+	return dockerfiles
 }

@@ -9,36 +9,24 @@ import (
 	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
 )
 
+var ginEngine *gin.Engine
 var logger = logrus.New()
 var verbosity = uint8(0)
+var registryBasePath string
 
-func SetLogger(l *logrus.Logger) {
+// Serve starts up a webserver
+func Serve(dockerBaseDirectory string, dockerRegistryBasePath string, listenPort uint16, l *logrus.Logger, v uint8) {
 	logger = l
-}
-
-func SetVerbosity(v uint8) {
 	verbosity = v
-}
+	ginEngine = gin.Default()
+	registryBasePath = dockerRegistryBasePath
 
-type WebServer struct {
-	DockerBaseDirectory    string
-	DockerRegistryBasePath string
-	Port                   uint16
-	ginEngine              *gin.Engine
-}
-
-func (ws *WebServer) Serve() {
+	dockerbuild.SetLogger(logger)
+	dockerbuild.SetVerbosity(verbosity)
+	dockerbuild.SetDockerBaseDirectory(dockerBaseDirectory)
 	logger.WithFields(logrus.Fields{
-		"port": ws.Port,
+		"port": listenPort,
 	}).Info("Starting web server")
-	ws.ginEngine = gin.Default()
-	ws.addRoutes()
-	ws.ginEngine.Run(":" + strconv.Itoa(int(ws.Port)))
-}
-
-func (ws *WebServer) newDockerBuild() dockerbuild.DockerBuild {
-	return dockerbuild.DockerBuild{
-		DockerBaseDirectory:    ws.DockerBaseDirectory,
-		DockerRegistryBasePath: ws.DockerRegistryBasePath,
-	}
+	addRoutes()
+	ginEngine.Run(":" + strconv.Itoa(int(listenPort)))
 }

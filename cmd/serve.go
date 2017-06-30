@@ -12,14 +12,13 @@ var serveCmd = &cobra.Command{
 	Short: "Run a web service to interact with the build tool",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		webserver.SetLogger(logger)
-		webserver.SetVerbosity(uint8(commandLineFlags.verbosity))
-		var ws = webserver.WebServer{
-			DockerBaseDirectory:    commandLineFlags.dockerBaseDirectory,
-			DockerRegistryBasePath: commandLineFlags.dockerRegistryBasePath,
-			Port: commandLineFlags.listenPort,
-		}
-		ws.Serve()
+		webserver.Serve(
+			commandLineFlags.dockerBaseDirectory,
+			commandLineFlags.dockerRegistryBasePath,
+			commandLineFlags.listenPort,
+			logger,
+			uint8(commandLineFlags.verbosity),
+		)
 	},
 }
 
