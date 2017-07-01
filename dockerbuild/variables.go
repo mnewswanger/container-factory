@@ -26,7 +26,7 @@ var fromSplitRegex, _ = regexp.Compile("FROM\\s+(({{\\s+local\\s+}}/)?([\\w\\-\\
 // SetDockerBaseDirectory sets the base directory to use for the docker build process and caches inventory into memory
 func SetDockerBaseDirectory(path string) {
 	if path == "" {
-		logger.Fatal("Registry Base Path must be specified")
+		logger.Fatal("Docker base directory must be specified")
 	}
 
 	var err error
