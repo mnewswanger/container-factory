@@ -1,0 +1,7 @@
+FROM {{ local }}/namespace-2/internal-1 AS intermediate
+
+RUN touch /tmp/intermediate
+
+FROM {{ local }}/namespace-2/internal-2
+
+COPY --from=intermediate /tmp/intermediate /tmp/copied-from-intermediate

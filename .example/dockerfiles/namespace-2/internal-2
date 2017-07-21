@@ -1,0 +1,3 @@
+FROM {{ local }}/namespace-1/from-external
+
+RUN touch /tmp/2

@@ -42,8 +42,10 @@ func BuildDeployment(registryBasePath string, deploymentName string, buildTarget
 		WorkingDirectory: dockerBaseDirectory,
 	}
 	if err := cmd.Run(); err == nil {
-		if err := pushImageToRegistry(imageName); err != nil {
-			logrus.Error("Failed to push image to remote registry")
+		if pushToRemote {
+			if err := pushImageToRegistry(imageName); err != nil {
+				logrus.Error("Failed to push image to remote registry")
+			}
 		}
 	} else {
 		logrus.Error("Deployment failed to build")
