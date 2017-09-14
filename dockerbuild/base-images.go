@@ -157,8 +157,7 @@ func loadBaseImageDockerfiles(subpath string) map[string]*dockerfile {
 	for _, f := range directoryContents {
 		var relativeFile = subpath + f
 
-		// Skip hidden files
-		if string(f[0]) == "." {
+		if !isValidDockerfile(f) {
 			continue
 		}
 

@@ -1,6 +1,7 @@
 package dockerbuild
 
 import "os/user"
+import "strings"
 
 // DockerBuild provides build services for docker images
 type DockerBuild struct {
@@ -41,4 +42,11 @@ func getDefaultTag(tag string) string {
 		tag = currentUser.Username
 	}
 	return tag
+}
+
+func isValidDockerfile(filename string) bool {
+	if string(filename[0]) == "." || strings.ToLower(filename) == "readme.md" {
+		return false
+	}
+	return true
 }

@@ -69,8 +69,7 @@ func getFolderDeployments(subpath string) []string {
 	for _, f := range directoryContents {
 		relativeFile := subpath + f
 
-		// Skip hidden files
-		if string(f[0]) == "." {
+		if !isValidDockerfile(f) {
 			continue
 		}
 
