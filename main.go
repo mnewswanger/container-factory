@@ -1,7 +1,7 @@
 package main
 
 import (
-	"go.mikenewswanger.com/docker-automatic-build/cmd"
+	"go.mikenewswanger.com/container-factory/cmd"
 )
 
 func main() {

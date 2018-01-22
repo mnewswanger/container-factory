@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
+	"go.mikenewswanger.com/container-factory/dockerbuild"
 )
 
 // buildBaseImagesCmd represents the build command

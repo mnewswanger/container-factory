@@ -3,7 +3,7 @@ package webserver
 import (
 	"github.com/gin-gonic/gin"
 
-	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
+	"go.mikenewswanger.com/container-factory/dockerbuild"
 )
 
 func addRoutes() {

@@ -7,7 +7,7 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/spf13/cobra"
 
-	"go.mikenewswanger.com/docker-automatic-build/dockerbuild"
+	"go.mikenewswanger.com/container-factory/dockerbuild"
 )
 
 // listBaseImagesCmd represents the list command

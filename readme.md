@@ -17,11 +17,11 @@ The tool can be run either via command line or with web endpoints (using the `se
 To get started, get and install the build tool.
 
 ```
-go get go.mikenewswanger.com/docker-automatic-build
-go install go.mikenewswanger.com/docker-automatic-build
+go get go.mikenewswanger.com/container-factory
+go install go.mikenewswanger.com/container-factory
 ```
 
-The tool can then be launched using `docker-automatic-build`
+The tool can then be launched using `container-factory`
 
 To see the underlying commands being run, commands can be run with verbosity level 3 `-vvv`.
 
@@ -31,7 +31,7 @@ A few examples are provided under the `/.examples/` directory.
 
 To view the images that will be built during the automatic build process and their inheritance:
 ```
-docker-automatic-build list-base-images -d $GOPATH/src/go.mikenewswanger.com/docker-automatic-build/.example
+docker-automatic-build list-base-images -d $GOPATH/src/go.mikenewswanger.com/container-factory/.example
 ```
 
 A `0` exit code indicates no issues building the hierarchy.
@@ -39,19 +39,19 @@ A `0` exit code indicates no issues building the hierarchy.
 To build the base images:
 
 ```
-docker-automatic-build build-base-images -d $GOPATH/src/go.mikenewswanger.com/docker-automatic-build/.example -p docker-registry.localhost --local-only
+docker-automatic-build build-base-images -d $GOPATH/src/go.mikenewswanger.com/container-factory/.example -p docker-registry.localhost --local-only
 ```
 
 *Note*: Base images cannot be built individually.  If no changes were made to the underlying docker files, the docker agent will perform a no-op.  To force a rebuild, use the `--force-rebuild` option.
 
 To see available deployments:
 ```
-docker-automatic-build list-deployments -d $GOPATH/src/go.mikenewswanger.com/docker-automatic-build/.example
+docker-automatic-build list-deployments -d $GOPATH/src/go.mikenewswanger.com/container-factory/.example
 ```
 
 To build a deployment:
 ```
-docker-automatic-build build-deployment -d $GOPATH/src/go.mikenewswanger.com/docker-automatic-build/.example -p docker-registry.localhost example --local-only
+docker-automatic-build build-deployment -d $GOPATH/src/go.mikenewswanger.com/container-factory/.example -p docker-registry.localhost example --local-only
 ```
 
 Deployments will always be prefixed with `/deployments/` in the tag.  The above image can be run as a container:
@@ -59,7 +59,7 @@ Deployments will always be prefixed with `/deployments/` in the tag.  The above 
 docker run --rm -ti docker-registry.localhost/deployments/example:<username> sh
 ```
 
-See the output of `docker-automatic-build <subcommand> --help` for more details.
+See the output of `container-factory <subcommand> --help` for more details.
 
 To push to a remote registry, remove `--local-only` from the above commands.
 

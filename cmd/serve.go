@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"go.mikenewswanger.com/docker-automatic-build/webserver"
+	"go.mikenewswanger.com/container-factory/webserver"
 )
 
 // serveCmd represents the serve command
