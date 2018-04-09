@@ -8,12 +8,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var cfgFile string
+type flags struct {
+	verbosity              int
+	deploymentImageTag     string
+	dockerBaseDirectory    string
+	dockerRegistryBasePath string
+	forceRebuild           bool
+	imageTag               string
+	listenPort             uint16
+	localOnly              bool
+	outputFormat           string
+}
+
+var commandLineFlags = flags{}
+
+var logger = logrus.New()
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "docker-automatic-build",
-	Short: "Docker Automated Build Tool",
+	Use:   "container-factory",
+	Short: "Container Image Build Tool",
 	Long:  ``,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		switch commandLineFlags.verbosity {
@@ -47,7 +61,7 @@ func Execute() {
 }
 
 func init() {
-	RootCmd.PersistentFlags().StringVarP(&commandLineFlags.dockerRegistryBasePath, "registry-base-path", "p", "", "Docker Registry Base Path i.e. registry.example.com/")
-	RootCmd.PersistentFlags().StringVarP(&commandLineFlags.dockerBaseDirectory, "docker-base-directory", "d", "", "Docker Repository Base Directory")
+	RootCmd.PersistentFlags().StringVarP(&commandLineFlags.dockerRegistryBasePath, "registry-base-path", "p", "", "Image Registry Base Path i.e. registry.example.com")
+	RootCmd.PersistentFlags().StringVarP(&commandLineFlags.dockerBaseDirectory, "digest-base-directory", "d", "", "Base Directory for build assets")
 	RootCmd.PersistentFlags().CountVarP(&commandLineFlags.verbosity, "verbosity", "v", "Output verbosity")
 }
